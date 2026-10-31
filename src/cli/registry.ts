@@ -5,6 +5,7 @@ import { doneCommand } from './commands/done.ts';
 import { dueCommand } from './commands/due.ts';
 import { editCommand } from './commands/edit.ts';
 import { listCommand } from './commands/list.ts';
+import { priorityCommand } from './commands/priority.ts';
 import { removeCommand } from './commands/remove.ts';
 import { undoCommand } from './commands/undo.ts';
 
@@ -16,6 +17,7 @@ export const COMMANDS: readonly Command[] = [
   undoCommand,
   editCommand,
   dueCommand,
+  priorityCommand,
   removeCommand,
   clearCommand,
 ];

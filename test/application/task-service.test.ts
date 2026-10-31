@@ -62,3 +62,36 @@ describe('TaskService overdue', () => {
     assert.deepEqual((await s.list({ status: 'overdue' })).map((t) => t.title), ['late', 'just late']);
   });
 });
+
+describe('TaskService priority', () => {
+  it('[AC-22.1] add takes an optional priority (default normal, case-insensitive)', async () => {
+    const s = service();
+    assert.equal((await s.add('a')).priority, 'normal');
+    assert.equal((await s.add('b', undefined, 'HIGH')).priority, 'high');
+    const both = await s.add('c', '2026-11-14', 'low');
+    assert.equal(both.priority, 'low');
+    assert.equal(both.dueDate, '2026-11-14');
+  });
+
+  it('[AC-22.2] add rejects a bad priority before writing anything', async () => {
+    const s = service();
+    for (const bad of ['hi', 'urgent', '1', '', 'high\n']) {
+      await assert.rejects(s.add('x', undefined, bad), (e) => e instanceof TodoError && e.code === 'VALIDATION');
+    }
+    assert.equal((await s.list({ status: 'all' })).length, 0);
+    assert.equal((await s.add('next')).id, 1);
+  });
+
+  it('[AC-22.3] setPriority changes only the priority; unknown id or bad level writes nothing', async () => {
+    const s = service();
+    await s.add('a');
+    const b = await s.add('b', '2026-11-14');
+    await s.complete([b.id]);
+    const [before] = await s.list({ status: 'done' });
+    const updated = await s.setPriority(b.id, 'low');
+    assert.deepEqual(updated, { ...before, priority: 'low' });
+    await assert.rejects(s.setPriority(99, 'high'), (e) => e instanceof TodoError && e.code === 'NOT_FOUND');
+    await assert.rejects(s.setPriority(b.id, 'urgent'), (e) => e instanceof TodoError && e.code === 'VALIDATION');
+    assert.deepEqual((await s.list({ status: 'all' })).map((t) => t.priority), ['normal', 'low']);
+  });
+});
