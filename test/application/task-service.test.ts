@@ -45,3 +45,20 @@ describe('TaskService', () => {
     assert.deepEqual((await s.list({ status: 'all' })).map((t) => t.title), ['renamed']);
   });
 });
+
+describe('TaskService overdue', () => {
+  it("[AC-7.4] list({ status: 'overdue' }) keeps open tasks due before the clock's local date, in order", async () => {
+    let now = new Date(2026, 10, 1, 12);
+    const s = new TaskService(new InMemoryRepository(), { now: () => now });
+    await s.add('late', '2026-11-10');
+    await s.add('today', '2026-11-16');
+    await s.add('none');
+    const done = await s.add('done late', '2026-11-02');
+    await s.complete([done.id]);
+    await s.add('later', '2026-12-01');
+    await s.add('just late', '2026-11-15');
+    now = new Date(2026, 10, 16, 0, 1);
+    assert.equal(s.today(), '2026-11-16');
+    assert.deepEqual((await s.list({ status: 'overdue' })).map((t) => t.title), ['late', 'just late']);
+  });
+});

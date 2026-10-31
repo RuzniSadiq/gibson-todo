@@ -1,4 +1,3 @@
-import { formatDueDate } from '../../domain/due-date.ts';
 import { TodoError } from '../../domain/errors.ts';
 import { formatTask, parseTaskId, type Command } from '../command.ts';
 
@@ -29,10 +28,9 @@ export const dueCommand: Command = {
       });
     }
     const task = await service.setDue(parseTaskId(rawId), clear ? null : words.join(' '));
+    const today = service.today();
     out.result(task, (style) => [
-      task.dueDate === null
-        ? `${style.green('Cleared due date')} ${formatTask(task, style)}`
-        : `${style.green('Due')} ${formatTask(task, style)}  ${style.dim(`due ${formatDueDate(task.dueDate)}`)}`,
+      `${style.green(task.dueDate === null ? 'Cleared due date' : 'Due')} ${formatTask(task, style, today)}`,
     ]);
   },
 };

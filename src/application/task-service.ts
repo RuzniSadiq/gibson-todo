@@ -1,4 +1,4 @@
-import { localCalendarDate, parseDueInput } from '../domain/due-date.ts';
+import { isOverdue, localCalendarDate, parseDueInput } from '../domain/due-date.ts';
 import { TodoError } from '../domain/errors.ts';
 import {
   completeTask,
@@ -10,7 +10,7 @@ import {
 } from '../domain/task.ts';
 import type { Clock, Mutation, TaskRepository, TaskState } from './ports.ts';
 
-export type StatusFilter = 'open' | 'done' | 'all';
+export type StatusFilter = 'open' | 'done' | 'all' | 'overdue';
 
 export interface ListQuery {
   readonly status: StatusFilter;
@@ -40,9 +40,19 @@ export class TaskService {
     });
   }
 
+  /** Today's local calendar date (YYYY-MM-DD) according to the injected clock. */
+  today(): string {
+    return localCalendarDate(this.#clock.now());
+  }
+
+  /** `overdue`: open tasks due before the clock's local date. Order is kept. */
   async list(query: ListQuery): Promise<readonly Task[]> {
     const { tasks } = await this.#repo.read();
     switch (query.status) {
+      case 'overdue': {
+        const today = this.today();
+        return tasks.filter((t) => isOverdue(t, today));
+      }
       case 'open':
         return tasks.filter((t) => !t.done);
       case 'done':
@@ -69,7 +79,7 @@ export class TaskService {
 
   /** Sets (`due` as accepted by `parseDueInput`) or clears (`null`) a task's due date. */
   async setDue(id: TaskId, due: string | null): Promise<Task> {
-    const dueDate = due === null ? null : parseDueInput(due, localCalendarDate(this.#clock.now()));
+    const dueDate = due === null ? null : parseDueInput(due, this.today());
     const [task] = await this.#replaceEach([id], (t) => ({ ...t, dueDate }));
     // #replaceEach returns exactly one task per id or throws.
     return task as Task;

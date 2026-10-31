@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { DUE_INPUT_HINT, formatDueDate, localCalendarDate, parseDueInput } from '../../src/domain/due-date.ts';
+import {
+  DUE_INPUT_HINT,
+  dueRelation,
+  formatDueDate,
+  formatDueDateFrom,
+  isOverdue,
+  localCalendarDate,
+  parseDueInput,
+} from '../../src/domain/due-date.ts';
 import { TodoError } from '../../src/domain/errors.ts';
 
 const SUNDAY = '2026-11-01';
@@ -64,5 +72,35 @@ describe('localCalendarDate / formatDueDate', () => {
   it('formats a due date for text output', () => {
     assert.equal(formatDueDate('2026-11-14'), 'Sat 14 Nov 2026');
     assert.equal(formatDueDate('2026-11-06'), 'Fri 6 Nov 2026');
+  });
+});
+
+describe('dueRelation / formatDueDateFrom / isOverdue', () => {
+  it('[AC-7.1] relates a due date to a local calendar day in whole days', () => {
+    assert.deepEqual(dueRelation('2026-11-14', '2026-11-16'), { kind: 'overdue', days: 2 });
+    assert.deepEqual(dueRelation('2026-11-16', '2026-11-16'), { kind: 'today' });
+    assert.deepEqual(dueRelation('2026-11-14', '2026-11-01'), { kind: 'upcoming', days: 13 });
+    // Across month, year and DST boundaries (pure UTC arithmetic).
+    assert.deepEqual(dueRelation('2026-10-24', '2026-11-02'), { kind: 'overdue', days: 9 });
+    assert.deepEqual(dueRelation('2026-12-31', '2027-01-01'), { kind: 'overdue', days: 1 });
+    assert.deepEqual(dueRelation('2028-02-28', '2028-03-01'), { kind: 'overdue', days: 2 });
+  });
+
+  it('[AC-7.1] shows the year only when it differs from today', () => {
+    assert.equal(formatDueDateFrom('2026-11-14', '2026-11-01'), 'Sat 14 Nov');
+    assert.equal(formatDueDateFrom('2027-01-14', '2026-11-01'), 'Thu 14 Jan 2027');
+    assert.equal(formatDueDateFrom('2025-12-31', '2026-11-01'), 'Wed 31 Dec 2025');
+  });
+
+  it('[AC-7.2] completed tasks and tasks without a due date are never overdue', () => {
+    assert.equal(isOverdue({ done: false, dueDate: '2026-11-14' }, '2026-11-16'), true);
+    assert.equal(isOverdue({ done: true, dueDate: '2026-11-14' }, '2026-11-16'), false);
+    assert.equal(isOverdue({ done: false, dueDate: null }, '2026-11-16'), false);
+    assert.equal(isOverdue({ done: false, dueDate: '2026-11-16' }, '2026-11-16'), false);
+  });
+
+  it('rejects malformed dates', () => {
+    assert.throws(() => dueRelation('2026-11-14\n', '2026-11-16'), TypeError);
+    assert.throws(() => formatDueDateFrom('2026-11-14', '16/11/2026'), TypeError);
   });
 });

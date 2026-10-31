@@ -76,9 +76,10 @@ describe('due dates via the CLI (real JSON store)', () => {
     assert.equal((await json('due', '#1', 'fri')).dueDate, '2026-11-06');
     const text = await todo('due', '1', '2026-11-14');
     assert.equal(text.code, EXIT.ok);
-    assert.match(text.out, /Due\s+#1 {2}\[ \] {2}Pay invoice {2}due Sat 14 Nov 2026/);
+    // Same-year dates omit the year (#7: `due Sat 14 Nov`); the clock is pinned to 2026-11-01.
+    assert.match(text.out, /Due\s+#1 {2}\[ \] {2}Pay invoice {2}due Sat 14 Nov\n$/);
     assert.match((await todo('due', '1', '--clear')).out, /Cleared due date\s+#1/);
-    assert.match((await todo('add', 'x', '--due', 'tomorrow')).out, /Added\s+#2 {2}\[ \] {2}x {2}due Mon 2 Nov 2026/);
+    assert.match((await todo('add', 'x', '--due', 'tomorrow')).out, /Added\s+#2 {2}\[ \] {2}x {2}due Mon 2 Nov\n$/);
   });
 
   it('[AC-6.4] invalid dates exit 1 with error + hint and leave the store unchanged', async () => {

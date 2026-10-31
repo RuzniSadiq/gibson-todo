@@ -50,6 +50,47 @@ export function formatDueDate(date: string): string {
   return `${WEEKDAY_SHORT[dayOfWeek(date)]} ${day} ${MONTH_SHORT[month - 1]} ${year}`;
 }
 
+/**
+ * Friendly text form relative to `today`: the year is shown only when it
+ * differs from today's, e.g. `Sat 14 Nov` or `Thu 14 Jan 2027`.
+ */
+export function formatDueDateFrom(date: string, today: string): string {
+  assertCalendarDate(today);
+  const full = formatDueDate(date);
+  return date.slice(0, 4) === today.slice(0, 4) ? full.slice(0, full.lastIndexOf(' ')) : full;
+}
+
+/** How a due date relates to a local calendar day. */
+export type DueRelation =
+  | { readonly kind: 'overdue'; readonly days: number }
+  | { readonly kind: 'today' }
+  | { readonly kind: 'upcoming'; readonly days: number };
+
+/**
+ * Relates `dueDate` to `today` (both YYYY-MM-DD local calendar dates) in whole
+ * calendar days. Pure: no clock, no time zone — callers pass the local date.
+ */
+export function dueRelation(dueDate: string, today: string): DueRelation {
+  assertCalendarDate(dueDate);
+  assertCalendarDate(today);
+  const days = daysBetween(dueDate, today);
+  if (days > 0) return { kind: 'overdue', days };
+  if (days === 0) return { kind: 'today' };
+  return { kind: 'upcoming', days: -days };
+}
+
+/** True when an open task's due date is strictly before `today`. */
+export function isOverdue(task: { readonly done: boolean; readonly dueDate: string | null }, today: string): boolean {
+  return !task.done && task.dueDate !== null && dueRelation(task.dueDate, today).kind === 'overdue';
+}
+
+const MS_PER_DAY = 86_400_000;
+
+/** Calendar days from `from` to `to` (positive when `to` is later). */
+function daysBetween(from: string, to: string): number {
+  return Math.round((toUtc(to).getTime() - toUtc(from).getTime()) / MS_PER_DAY);
+}
+
 function assertCalendarDate(date: string): void {
   if (!isCalendarDate(date)) throw new TypeError(`Expected a YYYY-MM-DD calendar date, got "${date}".`);
 }

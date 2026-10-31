@@ -1,4 +1,3 @@
-import { formatDueDate } from '../../domain/due-date.ts';
 import { formatTask, type Command } from '../command.ts';
 
 export const addCommand: Command = {
@@ -14,9 +13,7 @@ export const addCommand: Command = {
   async run({ service, out }, { positionals, values }) {
     const due = values['due'];
     const task = await service.add(positionals.join(' '), typeof due === 'string' ? due : undefined);
-    out.result(task, (style) => {
-      const line = `${style.green('Added')} ${formatTask(task, style)}`;
-      return [task.dueDate === null ? line : `${line}  ${style.dim(`due ${formatDueDate(task.dueDate)}`)}`];
-    });
+    const today = service.today();
+    out.result(task, (style) => [`${style.green('Added')} ${formatTask(task, style, today)}`]);
   },
 };

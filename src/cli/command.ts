@@ -1,5 +1,6 @@
 import type { ParseArgsOptionsConfig } from 'node:util';
 import type { TaskService } from '../application/task-service.ts';
+import { dueRelation, formatDueDateFrom } from '../domain/due-date.ts';
 import { TodoError } from '../domain/errors.ts';
 import type { Task, TaskId } from '../domain/task.ts';
 import type { Output, Style } from './output.ts';
@@ -44,11 +45,28 @@ export function requireIds(args: ParsedArgs, command: string): TaskId[] {
   return [...new Set(args.positionals.map(parseTaskId))];
 }
 
-export function formatTask(task: Task, style: Style): string {
+/**
+ * One task per line: `  #3  [ ]  Title  due Sat 14 Nov`. `today` is the local
+ * calendar date (YYYY-MM-DD) from the injected clock, used for the due label.
+ */
+export function formatTask(task: Task, style: Style, today: string): string {
   const id = style.dim(`#${task.id}`.padStart(4));
   const box = task.done ? style.green('[x]') : '[ ]';
   const title = task.done ? style.dim(task.title) : task.title;
-  return `${id}  ${box}  ${title}`;
+  const label = dueLabel(task, style, today);
+  return label === '' ? `${id}  ${box}  ${title}` : `${id}  ${box}  ${title}  ${label}`;
+}
+
+/** `due Sat 14 Nov`, `due today` or a red `overdue 2d`; empty without a due date. */
+export function dueLabel(task: Task, style: Style, today: string): string {
+  if (task.dueDate === null) return '';
+  // A completed task is never overdue or "due today": it just shows its date.
+  if (!task.done) {
+    const relation = dueRelation(task.dueDate, today);
+    if (relation.kind === 'overdue') return style.red(`overdue ${relation.days}d`);
+    if (relation.kind === 'today') return style.dim('due today');
+  }
+  return style.dim(`due ${formatDueDateFrom(task.dueDate, today)}`);
 }
 
 export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;

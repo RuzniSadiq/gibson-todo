@@ -35,7 +35,7 @@ $ todo list --json | jq '.[0].title'
 | Command | What it does |
 |---|---|
 | `todo add <title…>` | Add a task |
-| `todo list [--all\|--done]` (`ls`) | Show open tasks (or all / completed) |
+| `todo list [--all\|--done\|--overdue]` (`ls`) | Show open tasks (or all / completed / open tasks past their due date), with `due Sat 14 Nov`, `due today` or `overdue 2d` labels |
 | `todo done <id…>` | Mark tasks done |
 | `todo undo <id…>` | Reopen tasks |
 | `todo edit <id> <title…>` | Rename a task |

@@ -8,6 +8,7 @@ export const removeCommand: Command = {
   examples: ['todo rm 3'],
   async run({ service, out }, args) {
     const tasks = await service.remove(requireIds(args, 'rm'));
-    out.result(tasks, (style) => tasks.map((t) => `${style.red('Removed')} ${formatTask(t, style)}`));
+    const today = service.today();
+    out.result(tasks, (style) => tasks.map((t) => `${style.red('Removed')} ${formatTask(t, style, today)}`));
   },
 };
