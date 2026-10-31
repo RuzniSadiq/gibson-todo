@@ -8,6 +8,7 @@ export const undoCommand: Command = {
   examples: ['todo undo 3'],
   async run({ service, out }, args) {
     const tasks = await service.reopen(requireIds(args, 'undo'));
-    out.result(tasks, (style) => tasks.map((t) => `${style.yellow('Reopened')}  ${formatTask(t, style)}`));
+    const today = service.today();
+    out.result(tasks, (style) => tasks.map((t) => `${style.yellow('Reopened')}  ${formatTask(t, style, today)}`));
   },
 };

@@ -8,6 +8,7 @@ export const doneCommand: Command = {
   examples: ['todo done 3', 'todo done 3 4 7'],
   async run({ service, out }, args) {
     const tasks = await service.complete(requireIds(args, 'done'));
-    out.result(tasks, (style) => tasks.map((t) => `${style.green('Done')}  ${formatTask(t, style)}`));
+    const today = service.today();
+    out.result(tasks, (style) => tasks.map((t) => `${style.green('Done')}  ${formatTask(t, style, today)}`));
   },
 };

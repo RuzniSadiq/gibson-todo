@@ -15,6 +15,7 @@ export const editCommand: Command = {
       });
     }
     const task = await service.rename(parseTaskId(rawId), words.join(' '));
-    out.result(task, (style) => [`${style.green('Updated')} ${formatTask(task, style)}`]);
+    const today = service.today();
+    out.result(task, (style) => [`${style.green('Updated')} ${formatTask(task, style, today)}`]);
   },
 };
