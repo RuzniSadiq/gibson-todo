@@ -9,10 +9,10 @@
  */
 import type { TaskState } from '../../application/ports.ts';
 import { TodoError } from '../../domain/errors.ts';
-import type { Task } from '../../domain/task.ts';
+import { isCalendarDate, type Task } from '../../domain/task.ts';
 import { migrateToCurrent } from './migrations.ts';
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface StoredTaskV1 {
   id: number;
@@ -26,6 +26,17 @@ export interface StoreDocumentV1 {
   schemaVersion: 1;
   nextId: number;
   tasks: StoredTaskV1[];
+}
+
+/** v2 adds an optional due date: a YYYY-MM-DD calendar date, or null. */
+export interface StoredTaskV2 extends StoredTaskV1 {
+  dueDate: string | null;
+}
+
+export interface StoreDocumentV2 {
+  schemaVersion: 2;
+  nextId: number;
+  tasks: StoredTaskV2[];
 }
 
 /** Validates an already-JSON-parsed document and converts it to domain state. */
@@ -48,7 +59,7 @@ export function decodeStore(raw: unknown): TaskState {
   return toState(doc);
 }
 
-export function encodeStore(state: TaskState): StoreDocumentV1 {
+export function encodeStore(state: TaskState): StoreDocumentV2 {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     nextId: state.nextId,
@@ -58,6 +69,7 @@ export function encodeStore(state: TaskState): StoreDocumentV1 {
       done: t.done,
       createdAt: t.createdAt,
       completedAt: t.completedAt,
+      dueDate: t.dueDate,
     })),
   };
 }
@@ -81,7 +93,7 @@ function toState(doc: Record<string, unknown>): TaskState {
 function decodeTask(entry: unknown, index: number): Task {
   const where = `task at position ${index + 1}`;
   if (!isRecord(entry)) throw corrupt(`${where} is not an object`);
-  const { id, title, done, createdAt, completedAt } = entry;
+  const { id, title, done, createdAt, completedAt, dueDate } = entry;
   if (!isPositiveInt(id)) throw corrupt(`${where} has an invalid id`);
   if (typeof title !== 'string' || title.length === 0) throw corrupt(`${where} has no title`);
   if (typeof done !== 'boolean') throw corrupt(`${where} has an invalid done flag`);
@@ -92,7 +104,11 @@ function decodeTask(entry: unknown, index: number): Task {
   if (done !== (completedAt !== null)) {
     throw corrupt(`${where} has done/completedAt out of sync`);
   }
-  return { id, title, done, createdAt, completedAt };
+  // Required in v2 (the migration fills it for v1), so a missing key is damage.
+  if (dueDate !== null && !isCalendarDate(dueDate)) {
+    throw corrupt(`${where} has an invalid dueDate (expected YYYY-MM-DD or null)`);
+  }
+  return { id, title, done, createdAt, completedAt, dueDate };
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>

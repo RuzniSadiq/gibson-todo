@@ -11,6 +11,8 @@ export interface Task {
   readonly createdAt: string;
   /** ISO-8601 instant the task was completed, or null while open. */
   readonly completedAt: string | null;
+  /** Calendar date (YYYY-MM-DD, no time zone) the task is due, or null. */
+  readonly dueDate: string | null;
 }
 
 export const TITLE_MAX_LENGTH = 200;
@@ -39,6 +41,29 @@ export function normalizeTitle(raw: string): string {
   return title;
 }
 
+const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** True only for a real calendar date written as YYYY-MM-DD (rejects e.g. 2026-02-30). */
+export function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = CALENDAR_DATE.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  return day <= daysInMonth(year, month);
+}
+
+// Pure arithmetic (no Date): Date.UTC maps years 0–99 to 1900–1999.
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    return leap ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
 export function createTask(id: TaskId, rawTitle: string, now: Date): Task {
   return {
     id,
@@ -46,6 +71,7 @@ export function createTask(id: TaskId, rawTitle: string, now: Date): Task {
     done: false,
     createdAt: now.toISOString(),
     completedAt: null,
+    dueDate: null,
   };
 }
 

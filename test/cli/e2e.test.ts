@@ -48,7 +48,7 @@ describe('todo binary (real process)', () => {
     const remaining = await json('list', '--all');
     assert.deepEqual(remaining.map((t: { id: number; title: string; done: boolean }) => [t.id, t.title, t.done]), [[2, 'Ship v2', false]]);
     const onDisk = JSON.parse(await readFile(ctx.file, 'utf8'));
-    assert.equal(onDisk.schemaVersion, 1);
+    assert.equal(onDisk.schemaVersion, 2);
     assert.equal(onDisk.nextId, 4, 'ids are never reused');
   });
 
