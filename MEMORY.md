@@ -132,3 +132,15 @@ _Last updated: 2026-11-01_
 - **What happened:** Local gate was green on #5 but required CI failed 1 time(s).
 - **Fix / rule:** Local gate and CI must run the same commands (.agents/gate.json). Find the divergence and close it.
 - **Links:** PR #8 · run `20261031-193635-let-me-give-a-task-a-due-date`
+
+## 2026-10-31 — review-caught-5
+
+- **What happened:** Green gate passed on #5 ("Add optional dueDate to the task store (schema v2 + migration)") but the cross-vendor reviewer requested changes (6 round(s)). First finding: - `src/domain/task.ts:44` — kind: blocker; class: edge-case; trigger: `isCalendarDate("2026-11-14\n")` ⇒ returns `true`, despite the required exact `YYYY-MM-DD` format and the domain test expecting `false`. Use an end assertion that cannot 
+- **Fix / rule:** If this finding class recurs, add a test or lint rule so the gate catches it before review (prefer a sensor over prose).
+- **Links:** PR #8 · run `20261031-193635-let-me-give-a-task-a-due-date`
+
+## 2026-10-31 — ci-diverged-5
+
+- **What happened:** Local gate was green on #5 but required CI failed 1 time(s).
+- **Fix / rule:** Local gate and CI must run the same commands (.agents/gate.json). Find the divergence and close it.
+- **Links:** PR #8 · run `20261031-193635-let-me-give-a-task-a-due-date`
