@@ -31,7 +31,8 @@ describe('cli app', () => {
 
   it('[AC-1.4] --json emits parseable documents', async () => {
     const added = JSON.parse((await todo('add', 'x', '--json')).out);
-    assert.deepEqual(Object.keys(added).sort(), ['completedAt', 'createdAt', 'done', 'id', 'title']);
+    assert.deepEqual(Object.keys(added).sort(), ['completedAt', 'createdAt', 'done', 'dueDate', 'id', 'title']);
+    assert.equal(added.dueDate, null);
     const listed = JSON.parse((await todo('list', '--json')).out);
     assert.equal(listed[0].title, 'x');
     assert.deepEqual(JSON.parse((await todo('clear', '--json')).out), { removed: 0 });

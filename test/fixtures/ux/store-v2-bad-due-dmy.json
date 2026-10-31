@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "nextId": 2,
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Book flights",
+      "done": false,
+      "createdAt": "2026-10-30T09:00:00.000Z",
+      "completedAt": null,
+      "dueDate": "14/11/2026"
+    }
+  ]
+}

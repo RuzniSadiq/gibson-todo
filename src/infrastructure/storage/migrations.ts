@@ -11,9 +11,20 @@ type Document = Record<string, unknown>;
 type Migration = (doc: Document) => Document;
 
 export const MIGRATIONS: Readonly<Record<number, Migration>> = Object.freeze({
-  // Example for the next schema change:
-  // 1: (doc) => ({ ...doc, schemaVersion: 2, tasks: (doc.tasks as Document[]).map((t) => ({ ...t, newField: null })) }),
+  // v1 → v2: every task gains `dueDate: null`. Non-object entries and a
+  // non-list `tasks` are passed through untouched so the decoder reports them.
+  1: (doc: Document): Document => ({
+    ...doc,
+    schemaVersion: 2,
+    tasks: Array.isArray(doc['tasks'])
+      ? doc['tasks'].map((t: unknown) => (isRecord(t) ? { ...t, dueDate: null } : t))
+      : doc['tasks'],
+  }),
 });
+
+function isRecord(v: unknown): v is Document {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
 
 export function migrateToCurrent(doc: Document, fromVersion: number, target: number): Document {
   let current = doc;
