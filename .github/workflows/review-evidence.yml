@@ -33,4 +33,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number || github.event.issue.number }}
-        run: node scripts/review-evidence.mjs --pr "$PR" --set-status || true
+        # No `|| true`: if publishing fails the job goes red, and the status
+        # was already dropped to `pending`, so merges stay blocked (fail closed).
+        run: node scripts/review-evidence.mjs --pr "$PR" --set-status

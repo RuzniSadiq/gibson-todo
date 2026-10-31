@@ -52,6 +52,17 @@ describe('todo binary (real process)', () => {
     assert.equal(onDisk.nextId, 4, 'ids are never reused');
   });
 
+  it('[AC-1.2] a write attempt never modifies a file from a newer version (real process)', async () => {
+    const { writeFile } = await import('node:fs/promises');
+    const future = `${JSON.stringify({ schemaVersion: 999, nextId: 7, tasks: [], futureField: { keep: true } })}\n`;
+    await writeFile(ctx.file, future);
+    for (const args of [['add', 'x'], ['done', '1'], ['clear'], ['rm', '1']]) {
+      const result = await todo(...args);
+      assert.equal(result.code, 3, `${args[0]} must fail with the storage status`);
+      assert.equal(await readFile(ctx.file, 'utf8'), future, `${args[0]} must leave the file byte-for-byte unchanged`);
+    }
+  });
+
   it('[AC-1.4] exits with the storage status when the file is from the future', async () => {
     const { writeFile } = await import('node:fs/promises');
     await writeFile(ctx.file, JSON.stringify({ schemaVersion: 999, nextId: 1, tasks: [] }));

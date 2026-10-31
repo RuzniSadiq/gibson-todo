@@ -60,18 +60,29 @@ describe('JsonFileRepository', () => {
     assert.equal(await readFile(`${ctx.file}.lock`, 'utf8'), `${process.pid} live-holder`, 'a live lock is never deleted');
   });
 
-  it('[AC-1.3] never breaks a live lock, even an old one, before the age limit', async () => {
+  it('[AC-1.3] never breaks a live lock, however old', async () => {
     await writeFile(`${ctx.file}.lock`, `${process.pid} slow-holder`);
-    const old = new Date(Date.now() - 60_000);
+    const old = new Date(Date.now() - 24 * 3_600_000);
     await utimes(`${ctx.file}.lock`, old, old);
     const repo = new JsonFileRepository(ctx.file, { timeoutMs: 60, retryMs: 5 });
     await assert.rejects(new TaskService(repo, fixedClock()).add('x'), /still writing/);
+    assert.equal(await readFile(`${ctx.file}.lock`, 'utf8'), `${process.pid} slow-holder`);
+  });
+
+  it('[AC-1.3] never breaks an empty or unreadable lock (a holder may be mid-write)', async () => {
+    for (const contents of ['', 'garbage', ' ']) {
+      await writeFile(`${ctx.file}.lock`, contents);
+      const repo = new JsonFileRepository(ctx.file, { timeoutMs: 40, retryMs: 5 });
+      await assert.rejects(new TaskService(repo, fixedClock()).add('x'), /still writing/);
+      assert.equal(await readFile(`${ctx.file}.lock`, 'utf8'), contents);
+    }
   });
 
   it('[AC-1.3] recovers from a lock left by a crashed process', async () => {
     await writeFile(`${ctx.file}.lock`, `${DEAD_PID} crashed`);
     const repo = new JsonFileRepository(ctx.file, { timeoutMs: 500 });
     assert.equal((await new TaskService(repo, fixedClock()).add('x')).id, 1);
+    assert.deepEqual(await readdir(ctx.dir), ['tasks.json'], 'no lock, breaker or staging files left');
   });
 
   it('[AC-1.3] breaks a dead holder\'s lock exactly once under contention', async () => {
