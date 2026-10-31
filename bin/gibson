@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# The owner's entry point:  bin/gibson "what you want, in plain English"
+exec node "$(cd "$(dirname "$0")/.." && pwd)/scripts/gibson.mjs" "$@"

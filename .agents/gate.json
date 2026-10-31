@@ -1,0 +1,8 @@
+{
+  "$comment": "Machine-readable twin of the green gate in AGENTS.md. Empty string = step does not apply. Order is fixed: generate -> typecheck -> lint -> test -> build.",
+  "generate": "",
+  "typecheck": "npm run typecheck",
+  "lint": "npm run lint",
+  "test": "npm test",
+  "build": "npm run build"
+}

@@ -1,0 +1,38 @@
+# Sets the required commit status `gibson/review-evidence` on the PR head.
+# Runs the DEFAULT-BRANCH copy of scripts/review-evidence.mjs and never
+# checks out or executes PR code (safe use of pull_request_target).
+name: gibson-review-evidence
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, edited]
+  issue_comment:
+    types: [created, edited, deleted]
+
+permissions:
+  contents: read
+  statuses: write
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: review-evidence-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ github.event.repository.default_branch }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: exact-head, cross-vendor review evidence (+ owner approval on Tier C)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+        # No `|| true`: if publishing fails the job goes red, and the status
+        # was already dropped to `pending`, so merges stay blocked (fail closed).
+        run: node scripts/review-evidence.mjs --pr "$PR" --set-status

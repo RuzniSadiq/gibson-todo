@@ -1,0 +1,35 @@
+# Required check `tier-drift`: the diff may not exceed its declared tier label.
+# Re-runs on label changes. Uses the BASE branch's tier rules and script.
+name: gibson-tier
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gibson-tier-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tier-drift:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { path: .base, ref: '${{ github.event.pull_request.base.sha }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: diff may not drift above its declared tier
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          S=.base/scripts; C=.base/gibson/config.json
+          [ -f $S/tier-classify.mjs ] || { echo "::warning::bootstrap: base branch has no sensor yet; using the PR copy (one-time)"; S=scripts; C=gibson/config.json; }
+          node $S/tier-classify.mjs --base "$BASE" --labels "$LABELS" --config "$C"

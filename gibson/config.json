@@ -1,0 +1,66 @@
+{
+  "$comment": "Gibson harness configuration for this repo. TIER C: changing this file changes who reviews what and when humans are asked. Upstream doctrine: The Gibson AGENTS.md.",
+  "repo": "RuzniSadiq/gibson-todo",
+  "defaultBranch": "main",
+  "stateDir": "~/.gibson/gibson-todo",
+
+  "routing": {
+    "$comment": "Who wears which hat (gibson-resources routing table). Law 5: reviewer vendor must differ from builder vendor; the harness refuses to start otherwise.",
+    "planner":     { "vendor": "claude", "model": "opus" },
+    "decomposer":  { "vendor": "claude", "model": "opus" },
+    "builder":     { "vendor": "claude", "model": "opus" },
+    "reviewer":    { "vendor": "codex",  "model": "" },
+    "uxEvaluator": { "vendor": "claude", "model": "sonnet" }
+  },
+
+  "timeoutsSec": {
+    "plan": 600, "decompose": 600, "build": 1800, "fix": 1200,
+    "review": 900, "uxEval": 600, "gate": 600, "ci": 1500
+  },
+
+  "limits": {
+    "$comment": "Liveness: every loop is bounded. reviewRounds = fix rounds allowed after REQUEST_CHANGES (config/review-round-caps.json upstream).",
+    "maxIssuesPerRequest": 5,
+    "planRevisions": 3,
+    "gateFixAttempts": 2,
+    "uxFixRounds": 1,
+    "ciFixAttempts": 1,
+    "reviewRounds": { "A": 1, "B": 2, "C": 3 },
+    "maxActiveLanes": 3
+  },
+
+  "reviewEvidence": {
+    "$comment": "Only comments POSTED BY these GitHub logins count as review evidence / owner approval. Today the harness posts reviews through the owner's account, so independence is by vendor + session, not by GitHub identity. G14 follow-up: give the reviewer its own bot login and list only that login under reviewerLogins.",
+    "reviewerLogins": ["RuzniSadiq"],
+    "ownerLogins": ["RuzniSadiq"]
+  },
+
+  "requiredChecks": ["gate", "dco", "test-integrity", "secrets", "contract", "tier-drift", "gibson/review-evidence"],
+
+  "memoryPaths": ["MEMORY.md", "memory/**"],
+  "testGlobs": ["test/**/*.test.ts", "scripts/tests/*.test.mjs"],
+
+  "tierRules": [
+    { "tier": "C", "glob": "src/infrastructure/storage/schema.ts",     "why": "storage schema (G1 / schema is Tier C)" },
+    { "tier": "C", "glob": "src/infrastructure/storage/migrations.ts", "why": "data migrations touch user data" },
+    { "tier": "C", "glob": ".github/**",                              "why": "CI gates are a security boundary" },
+    { "tier": "C", "glob": "scripts/**",                              "why": "harness sensors are a security boundary" },
+    { "tier": "C", "glob": "gibson/**",                               "why": "harness routing, prompts and owner direction" },
+    { "tier": "C", "glob": "AGENTS.md",                               "why": "repo contract" },
+    { "tier": "C", "glob": ".agents/**",                              "why": "definition of green" },
+    { "tier": "C", "glob": "bin/**",                                  "why": "harness entry point" },
+    { "tier": "B", "glob": "package.json",                            "why": "hot file: dependencies" },
+    { "tier": "B", "glob": "package-lock.json",                       "why": "supply chain" },
+    { "tier": "B", "glob": "tsconfig*.json",                          "why": "compiler strictness" },
+    { "tier": "B", "glob": "eslint.config.js",                        "why": "lint strictness" },
+    { "tier": "B", "glob": "src/infrastructure/**",                   "why": "shared persistence module" },
+    { "tier": "B", "glob": "src/application/**",                      "why": "shared use-case layer" },
+    { "tier": "B", "glob": "src/domain/**",                           "why": "shared domain model" },
+    { "tier": "A", "glob": "src/cli/**",                              "why": "isolated command / presentation" },
+    { "tier": "A", "glob": "test/**",                                 "why": "tests" },
+    { "tier": "A", "glob": "**/*.md",                                 "why": "docs" },
+    { "tier": "A", "glob": "MEMORY.md",                               "why": "shared memory (Law 4 exception)" }
+  ],
+  "unmatchedTier": "B",
+  "sizeTierB": { "lines": 150, "files": 6 }
+}
