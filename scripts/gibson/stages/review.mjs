@@ -2,9 +2,9 @@
 // read-only sandbox, bound to the exact head SHA; its verdict is posted as
 // review evidence that CI (scripts/review-evidence.mjs) re-checks.
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
 import { render } from '../lib/agents.mjs';
 import { REVIEW_MARKER } from '../lib/evidence.mjs';
 import { run as exec } from '../lib/exec.mjs';
@@ -119,18 +119,33 @@ export async function reviewRound(ctx, issue) {
   return { verdict, findingsText };
 }
 
+const SAFE_FIXTURE = /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.json$/;
+const MAX_FIXTURE_BYTES = 256 * 1024;
+
 /**
  * Copy the worktree's test/fixtures/**\/*.json into <sandbox>/fixtures so the
  * probe-only evaluator can point TODO_FILE at old-version or corrupt stores
- * without needing write access. Returns the seeded relative paths.
+ * without needing write access. Only regular files with safe names are copied:
+ * symlinks, other file types, odd names and oversized files are skipped.
+ * Returns the seeded relative paths.
  */
 export function seedFixtures(worktree, sandbox) {
   const src = join(worktree, 'test', 'fixtures');
-  if (!existsSync(src)) return [];
-  const dest = join(sandbox, 'fixtures');
-  cpSync(src, dest, { recursive: true, filter: (f) => !f.includes('/.') });
-  return readdirSync(dest, { recursive: true }).map(String)
-    .filter((f) => f.endsWith('.json')).map((f) => relative(dest, join(dest, f))).sort();
+  if (!existsSync(src) || !lstatSync(src).isDirectory()) return [];
+  const seeded = [];
+  const walk = (rel) => {
+    for (const ent of readdirSync(join(src, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${ent.name}` : ent.name;
+      if (ent.isDirectory()) walk(r);
+      else if (ent.isFile() && SAFE_FIXTURE.test(r) && lstatSync(join(src, r)).size <= MAX_FIXTURE_BYTES) {
+        mkdirSync(dirname(join(sandbox, 'fixtures', r)), { recursive: true });
+        copyFileSync(join(src, r), join(sandbox, 'fixtures', r));
+        seeded.push(r);
+      }
+    }
+  };
+  walk('');
+  return seeded.sort();
 }
 
 /** UX-EVAL: a separate identity drives the LIVE built CLI, never the diff. */
