@@ -7,6 +7,13 @@ description. The built CLI for PR #{{prNumber}} (head `{{headSha}}`) is at
 
     TODO_FILE={{todoFile}} node dist/cli/main.js <args>
 
+The harness has pre-seeded copies of the PR's `test/fixtures/**/*.json` into
+`{{fixturesDir}}` (throwaway copies — mutating them is fine). Use them for
+migration and error paths, e.g. read the file, run
+`TODO_FILE={{fixturesDir}}/<name>.json node dist/cli/main.js list`, read it
+again and compare. Seeded files:
+{{fixtureList}}
+
 ## What was built — issue #{{issueNumber}}: {{issueTitle}}
 {{issueBody}}
 

@@ -2,9 +2,9 @@
 // read-only sandbox, bound to the exact head SHA; its verdict is posted as
 // review evidence that CI (scripts/review-evidence.mjs) re-checks.
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { render } from '../lib/agents.mjs';
 import { REVIEW_MARKER } from '../lib/evidence.mjs';
 import { run as exec } from '../lib/exec.mjs';
@@ -119,6 +119,20 @@ export async function reviewRound(ctx, issue) {
   return { verdict, findingsText };
 }
 
+/**
+ * Copy the worktree's test/fixtures/**\/*.json into <sandbox>/fixtures so the
+ * probe-only evaluator can point TODO_FILE at old-version or corrupt stores
+ * without needing write access. Returns the seeded relative paths.
+ */
+export function seedFixtures(worktree, sandbox) {
+  const src = join(worktree, 'test', 'fixtures');
+  if (!existsSync(src)) return [];
+  const dest = join(sandbox, 'fixtures');
+  cpSync(src, dest, { recursive: true, filter: (f) => !f.includes('/.') });
+  return readdirSync(dest, { recursive: true }).map(String)
+    .filter((f) => f.endsWith('.json')).map((f) => relative(dest, join(dest, f))).sort();
+}
+
 /** UX-EVAL: a separate identity drives the LIVE built CLI, never the diff. */
 export async function uxEval(ctx, issue) {
   const { config, run, gh } = ctx;
@@ -129,8 +143,11 @@ export async function uxEval(ctx, issue) {
   const sandbox = mkdtempSync(join(tmpdir(), 'gibson-ux-'));
   try {
     const template = readFileSync(join(config.root, 'gibson/roles/ux-evaluator.md'), 'utf8');
+    const fixtures = seedFixtures(issue.worktree, sandbox);
     const prompt = render(template, {
       prNumber: issue.pr, headSha: issue.headSha, todoFile: join(sandbox, 'tasks.json'),
+      fixturesDir: join(sandbox, 'fixtures'),
+      fixtureList: fixtures.length ? fixtures.map((f) => `- ${f}`).join('\n') : '- (none)',
       issueNumber: issue.number, issueTitle: issue.title, issueBody: (await gh.issue(issue.number)).body,
     });
     const stop = ui.spinner('evaluating the live CLI');
