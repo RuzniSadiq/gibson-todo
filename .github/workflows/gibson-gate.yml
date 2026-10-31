@@ -1,0 +1,119 @@
+# The Gibson green gate + merge sensors. Required checks on main:
+#   gate · dco · test-integrity · secrets · contract · tier-drift
+# (gibson/review-evidence is set by review-evidence.yml).
+# Sensors that judge the PR run from the BASE branch copy (.base/), so a PR
+# cannot weaken the check that grades it. Jobs never skip on a non-draft PR:
+# GitHub treats a skipped required check as passing, so a later skipped run
+# must never be able to mask an earlier failure. tier-drift (which must
+# re-run on label changes) lives in gibson-tier.yml for the same reason.
+name: gibson-gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gibson-gate-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: generate → typecheck → lint → test → build
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || 'HEAD~1' }}
+        run: node scripts/gate.mjs --base "$BASE" --skip-if-memory-only
+
+  dco:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: every commit carries Signed-off-by
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          bad=0
+          for sha in $(git rev-list "$BASE..$HEAD"); do
+            if ! git log -1 --format=%B "$sha" | grep -q '^Signed-off-by: '; then
+              echo "dco: $sha has no Signed-off-by trailer"; bad=1
+            fi
+          done
+          [ "$bad" = 0 ] && echo "dco: all commits signed off"
+          exit $bad
+
+  test-integrity:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: head }
+      - uses: actions/checkout@v4
+        with: { path: .base, ref: '${{ github.event.pull_request.base.sha }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: npm ci --prefix head && { [ ! -f .base/package-lock.json ] || npm ci --prefix .base; }
+      - name: suite may not shrink or gain skips without a visible waiver
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > pr-body.txt
+          S=.base/scripts; [ -f $S/test-integrity.mjs ] || { echo "::warning::bootstrap: base branch has no sensor yet; using the PR copy (one-time)"; S=head/scripts; }
+          node $S/test-integrity.mjs --base-dir .base --head-dir head --pr-body-file pr-body.txt
+
+  secrets:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { path: .base, ref: '${{ github.event.pull_request.base.sha }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          S=.base/scripts; [ -f $S/secrets-scan.mjs ] || { echo "::warning::bootstrap: base branch has no sensor yet; using the PR copy (one-time)"; S=scripts; }
+          node $S/secrets-scan.mjs --base "$BASE" --cwd .
+
+  contract:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { path: .base, ref: '${{ github.event.pull_request.base.sha }}' }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci && { [ ! -f .base/package-lock.json ] || npm ci --prefix .base; }
+      - name: every acceptance criterion has a passing tagged test
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.txt"
+          S=.base/scripts; [ -f $S/contract-met.mjs ] || { echo "::warning::bootstrap: base branch has no sensor yet; using the PR copy (one-time)"; S=scripts; }
+          node $S/contract-met.mjs --pr-body-file "$RUNNER_TEMP/pr-body.txt" --cwd .

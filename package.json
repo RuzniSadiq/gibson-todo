@@ -1,0 +1,32 @@
+{
+  "name": "gibson-todo",
+  "version": "0.1.0",
+  "description": "A terminal task manager, developed end-to-end by The Gibson agent fleet.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "todo": "dist/cli/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "node --test \"test/**/*.test.ts\" \"scripts/tests/*.test.mjs\"",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
+    "gate": "bash scripts/gate.sh",
+    "todo": "node src/cli/main.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.47.0"
+  }
+}

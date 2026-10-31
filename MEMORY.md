@@ -1,0 +1,67 @@
+# MEMORY.md — shared agent memory
+
+**Read this early** in any coding, review, or merge session.
+**Update it** when the same failure class appears twice (prefer a test/sensor over a long essay).
+
+### Dual-write rule (mandatory)
+
+Whenever an agent writes durable operational memory in a local runtime store,
+**also write here** so other agents and machines share the same context.
+
+### No CI loop for memory-only updates
+
+Commits that touch **only** this file (or `memory/**`) skip the product green
+gate and the review gate. They still land via a PR (main is protected); the
+sensors pass memory-only PRs automatically.
+
+Canonical convention: The Gibson `docs/24-agent-memory-conventions.md`.
+
+_Last updated: 2026-11-01_
+
+---
+
+## Operating notes
+
+| Topic | Rule |
+|-------|------|
+| Claims | `agent-claimed` label + `- Active-work claim:` line in the draft PR body |
+| Green gate | `npm run gate` (see `AGENTS.md` / `.agents/gate.json`) |
+| Sensor tagging | Each criterion `AC-<issue>.<n>` needs a passing test named `[AC-<issue>.<n>] …` |
+| Deploy | merge to `main` ⇒ release rebuilt at `~/.gibson/gibson-todo/release` + smoke test |
+| Kill switch | `bin/gibson halt` (file `~/.gibson/gibson-todo/HALT`) or `GIBSON_HALT=1` |
+
+---
+
+## Lessons (append-only)
+
+### How to add a lesson
+
+1. Branch from the latest `origin/main` in your own worktree.
+2. Append a new dated section at the **bottom** — do not rewrite history.
+3. Commit **only** memory files; open a PR labelled `memory-only`.
+4. Never put secrets, tokens, or connection strings here.
+
+```markdown
+## YYYY-MM-DD — <short-slug>
+
+- **What happened:** …
+- **Root cause:** …
+- **Fix / rule:** …
+- **Links:** issue/PR if any
+```
+
+---
+
+## 2026-11-01 — adoption-seed
+
+- Repo adopted Gibson agent-memory conventions (AGENTS.md memory block + this file).
+- Pure memory commits skip the product green gate; dual-write is mandatory.
+
+## 2026-11-01 — skipped-required-checks-pass
+
+- **What happened:** While wiring CI, a draft design skipped the `gate` job on
+  `labeled` events. GitHub treats a *skipped* required check as passing, so a
+  later label change could have masked an earlier gate failure on the same head.
+- **Fix / rule:** Required-check jobs never skip on a non-draft PR. Checks that
+  must re-run on label changes (`tier-drift`) live in their own workflow.
+- **Links:** issue #1, PR #2
