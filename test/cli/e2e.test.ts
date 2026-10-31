@@ -89,6 +89,60 @@ describe('todo binary (real process)', () => {
     assert.equal(listed.code, 0, 'the store is still fully usable');
   });
 
+  it('[AC-5.1] a checked-in v1 store loads through the CLI with dueDate null and is rewritten as v2 on the next write (real process)', async () => {
+    const { copyFile } = await import('node:fs/promises');
+    const fixture = fileURLToPath(new URL('../fixtures/store-v1.json', import.meta.url));
+    await copyFile(fixture, ctx.file);
+    const v1 = JSON.parse(await readFile(fixture, 'utf8'));
+
+    const listed = await todo('list', '--all', '--json');
+    assert.equal(listed.code, 0, listed.stderr);
+    const tasks = JSON.parse(listed.stdout) as Record<string, unknown>[];
+    assert.deepEqual(tasks.map((t) => t['id']), [1, 2, 4]);
+    for (const t of tasks) assert.equal(t['dueDate'], null);
+    assert.equal(await readFile(ctx.file, 'utf8'), await readFile(fixture, 'utf8'), 'a read never rewrites the file');
+
+    const added = await todo('add', 'y', '--json');
+    assert.equal(added.code, 0, added.stderr);
+    assert.equal(JSON.parse(added.stdout).id, 5, 'nextId from the v1 file is honoured');
+
+    const onDisk = JSON.parse(await readFile(ctx.file, 'utf8'));
+    assert.equal(onDisk.schemaVersion, 2);
+    assert.equal(onDisk.nextId, 6);
+    for (const [i, old] of v1.tasks.entries()) {
+      assert.deepEqual(onDisk.tasks[i], { ...old, dueDate: null }, `task ${old.id} keeps every v1 field unchanged`);
+    }
+    assert.equal(onDisk.tasks[3].title, 'y');
+    assert.equal(onDisk.tasks[3].dueDate, null);
+  });
+
+  for (const bad of ['"2026-02-30"', '"14/11/2026"', '42']) {
+    it(`[AC-5.3] a v2 file with dueDate ${bad} is refused with the storage status and left unchanged (real process)`, async () => {
+      const { writeFile } = await import('node:fs/promises');
+      const content = `{"schemaVersion":2,"nextId":2,"tasks":[{"id":1,"title":"a","done":false,"createdAt":"2026-10-30T09:00:00.000Z","completedAt":null,"dueDate":${bad}}]}\n`;
+      await writeFile(ctx.file, content);
+      for (const args of [['list'], ['add', 'x']]) {
+        const result = await todo(...args);
+        assert.equal(result.code, 3, `${args.join(' ')} must exit with the storage status`);
+        assert.match(result.stderr ?? '', /dueDate/, 'the error names the bad field');
+        assert.match(result.stderr ?? '', /hint/i, 'the error carries a hint');
+        assert.equal(await readFile(ctx.file, 'utf8'), content, `${args.join(' ')} must leave the file byte-for-byte unchanged`);
+      }
+    });
+  }
+
+  it('[AC-5.4] a schemaVersion 3 file is refused as written by a newer version and left unchanged (real process)', async () => {
+    const { writeFile } = await import('node:fs/promises');
+    const content = `${JSON.stringify({ schemaVersion: 3, nextId: 1, tasks: [] })}\n`;
+    await writeFile(ctx.file, content);
+    for (const args of [['list'], ['add', 'x']]) {
+      const result = await todo(...args);
+      assert.equal(result.code, 3, `${args.join(' ')} must exit with the storage status`);
+      assert.match(result.stderr ?? '', /written by a newer version/);
+      assert.equal(await readFile(ctx.file, 'utf8'), content, `${args.join(' ')} must leave the file byte-for-byte unchanged`);
+    }
+  });
+
   it('[AC-1.4] exits with the storage status when the file is from the future', async () => {
     const { writeFile } = await import('node:fs/promises');
     await writeFile(ctx.file, JSON.stringify({ schemaVersion: 999, nextId: 1, tasks: [] }));
