@@ -45,16 +45,33 @@ export function requireIds(args: ParsedArgs, command: string): TaskId[] {
   return [...new Set(args.positionals.map(parseTaskId))];
 }
 
+export interface FormatOptions {
+  /** Show a `high` / `low` label (normal never gets one). Off by default. */
+  readonly priority?: boolean;
+}
+
 /**
- * One task per line: `  #3  [ ]  Title  due Sat 14 Nov`. `today` is the local
- * calendar date (YYYY-MM-DD) from the injected clock, used for the due label.
+ * One task per line: `  #3  [ ]  Title  high  due Sat 14 Nov`. `today` is the
+ * local calendar date (YYYY-MM-DD) from the injected clock, used for the due label.
  */
-export function formatTask(task: Task, style: Style, today: string): string {
+export function formatTask(task: Task, style: Style, today: string, options: FormatOptions = {}): string {
   const id = style.dim(`#${task.id}`.padStart(4));
   const box = task.done ? style.green('[x]') : '[ ]';
   const title = task.done ? style.dim(task.title) : task.title;
-  const label = dueLabel(task, style, today);
-  return label === '' ? `${id}  ${box}  ${title}` : `${id}  ${box}  ${title}  ${label}`;
+  const labels = [options.priority === true ? priorityLabel(task, style) : '', dueLabel(task, style, today)];
+  return [`${id}  ${box}  ${title}`, ...labels.filter((l) => l !== '')].join('  ');
+}
+
+/** A yellow `high` or a dim `low`; empty for normal, so everyday lists stay quiet. */
+export function priorityLabel(task: Task, style: Style): string {
+  switch (task.priority) {
+    case 'high':
+      return style.yellow('high');
+    case 'low':
+      return style.dim('low');
+    case 'normal':
+      return '';
+  }
 }
 
 /** `due Sat 14 Nov`, `due today` or a red `overdue 2d`; empty without a due date. */

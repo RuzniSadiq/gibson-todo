@@ -19,6 +19,32 @@ describe('TaskService', () => {
     assert.equal((await s.list({ status: 'all' })).length, 2);
   });
 
+  it('[AC-23.1] list sorts high, normal, low and keeps task-number order within a level', async () => {
+    const s = service();
+    await s.add('one', undefined, 'low');
+    await s.add('two');
+    await s.add('three', undefined, 'high');
+    await s.add('four');
+    assert.deepEqual((await s.list({ status: 'open' })).map((t) => t.id), [3, 2, 4, 1]);
+    assert.deepEqual((await s.list({ status: 'all' })).map((t) => t.id), [3, 2, 4, 1]);
+  });
+
+  it('[AC-23.2] the priority filter combines with every status filter', async () => {
+    const s = service();
+    await s.add('late high', '2026-10-01', 'high');
+    await s.add('done high', undefined, 'high');
+    await s.add('late normal', '2026-10-01');
+    await s.add('done low', undefined, 'low');
+    await s.complete([2, 4]);
+    const ids = async (status: 'open' | 'done' | 'all' | 'overdue', priority: 'high' | 'normal' | 'low') =>
+      (await s.list({ status, priority })).map((t) => t.id);
+    assert.deepEqual(await ids('open', 'high'), [1]);
+    assert.deepEqual(await ids('all', 'high'), [1, 2]);
+    assert.deepEqual(await ids('done', 'low'), [4]);
+    assert.deepEqual(await ids('overdue', 'high'), [1]);
+    assert.deepEqual(await ids('overdue', 'low'), []);
+  });
+
   it('[AC-1.1] never reuses an id after removal', async () => {
     const s = service();
     await s.add('a');

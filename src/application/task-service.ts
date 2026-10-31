@@ -1,6 +1,6 @@
 import { isOverdue, localCalendarDate, parseDueInput } from '../domain/due-date.ts';
 import { TodoError } from '../domain/errors.ts';
-import { DEFAULT_PRIORITY, parsePriority } from '../domain/priority.ts';
+import { DEFAULT_PRIORITY, parsePriority, priorityRank, type Priority } from '../domain/priority.ts';
 import {
   completeTask,
   createTask,
@@ -15,6 +15,8 @@ export type StatusFilter = 'open' | 'done' | 'all' | 'overdue';
 
 export interface ListQuery {
   readonly status: StatusFilter;
+  /** When set, only tasks at this level (applied together with `status`). */
+  readonly priority?: Priority;
 }
 
 /** The use cases. The CLI talks to this; it never touches storage directly. */
@@ -48,10 +50,20 @@ export class TaskService {
     return localCalendarDate(this.#clock.now());
   }
 
-  /** `overdue`: open tasks due before the clock's local date. Order is kept. */
+  /**
+   * Tasks matching `status` (and `priority`, when given), most urgent first:
+   * high, then normal, then low; task-number order within each level.
+   * `overdue`: open tasks due before the clock's local date.
+   */
   async list(query: ListQuery): Promise<readonly Task[]> {
     const { tasks } = await this.#repo.read();
-    switch (query.status) {
+    const { priority } = query;
+    const matching = this.#byStatus(tasks, query.status).filter((t) => priority === undefined || t.priority === priority);
+    return [...matching].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.id - b.id);
+  }
+
+  #byStatus(tasks: readonly Task[], status: StatusFilter): readonly Task[] {
+    switch (status) {
       case 'overdue': {
         const today = this.today();
         return tasks.filter((t) => isOverdue(t, today));
