@@ -22,7 +22,7 @@ describe('JsonFileRepository', () => {
     assert.equal((await service.list({ status: 'all' })).length, 0);
     await service.add('first');
     const saved = JSON.parse(await readFile(file, 'utf8'));
-    assert.equal(saved.schemaVersion, 2);
+    assert.equal(saved.schemaVersion, 3);
     assert.equal((await stat(file)).mode & 0o777, 0o600);
   });
 
@@ -102,7 +102,7 @@ describe('JsonFileRepository', () => {
   const isStorage = (e: unknown) => e instanceof TodoError && e.code === 'STORAGE';
   const v2Task = { id: 1, title: 'a', done: false, createdAt: '2026-10-31T09:00:00.000Z', completedAt: null, dueDate: null };
 
-  it('[AC-5.1] a v1 file on disk loads with dueDate null and is rewritten as v2 on the next write', async () => {
+  it('[AC-5.1] a v1 file on disk loads with dueDate null and is rewritten as the current version on the next write', async () => {
     const fixture = await readFile(new URL('../fixtures/store-v1.json', import.meta.url), 'utf8');
     await writeFile(ctx.file, fixture);
     const repo = new JsonFileRepository(ctx.file);
@@ -113,11 +113,46 @@ describe('JsonFileRepository', () => {
     await new TaskService(repo, fixedClock()).add('new');
     const saved = JSON.parse(await readFile(ctx.file, 'utf8'));
     const original = JSON.parse(fixture);
-    assert.equal(saved.schemaVersion, 2);
+    assert.equal(saved.schemaVersion, 3);
     assert.deepEqual(
       saved.tasks.slice(0, original.tasks.length),
-      original.tasks.map((t: object) => ({ ...t, dueDate: null })),
+      original.tasks.map((t: object) => ({ ...t, dueDate: null, priority: 'normal' })),
     );
+  });
+
+  it('[AC-21.2] `add` against a v2 file rewrites it as v3 with every earlier task unchanged apart from priority normal', async () => {
+    const fixture = await readFile(new URL('../fixtures/store-v2.json', import.meta.url), 'utf8');
+    await writeFile(ctx.file, fixture);
+    const repo = new JsonFileRepository(ctx.file);
+    const loaded = await repo.read();
+    assert.ok(loaded.tasks.length > 1 && loaded.tasks.every((t) => t.priority === 'normal'));
+    assert.equal(await readFile(ctx.file, 'utf8'), fixture, 'reading never rewrites the file');
+
+    const added = await new TaskService(repo, fixedClock()).add('new');
+    const saved = JSON.parse(await readFile(ctx.file, 'utf8'));
+    const original = JSON.parse(fixture);
+    assert.equal(original.schemaVersion, 2, 'the fixture really is a version-2 file');
+    assert.equal(saved.schemaVersion, 3);
+    assert.equal(saved.nextId, original.nextId + 1);
+    assert.equal(added.id, original.nextId);
+    assert.deepEqual(saved.tasks.slice(0, -1), original.tasks.map((t: object) => ({ ...t, priority: 'normal' })));
+    assert.equal(saved.tasks.at(-1).priority, 'normal');
+  });
+
+  it('[AC-21.3] refuses a v3 file whose task priority is missing, unknown, mis-cased or a number and leaves its bytes unchanged', async () => {
+    const v3Task = { ...v2Task, priority: 'normal' };
+    const noPriority: Record<string, unknown> = { ...v3Task };
+    delete noPriority['priority'];
+    for (const task of [noPriority, { ...v3Task, priority: 'urgent' }, { ...v3Task, priority: 'High' }, { ...v3Task, priority: 1 }]) {
+      const bytes = `${JSON.stringify({ schemaVersion: 3, nextId: 2, tasks: [task] }, null, 2)}\n`;
+      await writeFile(ctx.file, bytes);
+      const repo = new JsonFileRepository(ctx.file);
+      const label = JSON.stringify(task);
+      await assert.rejects(repo.read(), (e: unknown) => isStorage(e) && /priority/.test((e as Error).message), `read ${label}`);
+      await assert.rejects(new TaskService(repo, fixedClock()).add('x'), isStorage, `write ${label}`);
+      assert.equal(await readFile(ctx.file, 'utf8'), bytes);
+      assert.deepEqual(await readdir(ctx.dir), ['tasks.json'], 'no lock or staging files left');
+    }
   });
 
   it('[AC-5.3] refuses a v2 file with an invalid dueDate and leaves its bytes unchanged', async () => {
@@ -132,8 +167,8 @@ describe('JsonFileRepository', () => {
     }
   });
 
-  it('[AC-5.4] refuses a schemaVersion 3 file as written by a newer version and leaves its bytes unchanged', async () => {
-    const bytes = `${JSON.stringify({ schemaVersion: 3, nextId: 2, tasks: [{ ...v2Task, future: true }] }, null, 2)}\n`;
+  it('[AC-5.4] [AC-21.4] refuses a schemaVersion 4 file as written by a newer version and leaves its bytes unchanged', async () => {
+    const bytes = `${JSON.stringify({ schemaVersion: 4, nextId: 2, tasks: [{ ...v2Task, priority: 'normal', future: true }] }, null, 2)}\n`;
     await writeFile(ctx.file, bytes);
     const repo = new JsonFileRepository(ctx.file);
     const newer = (e: unknown) => isStorage(e) && /written by a newer version/.test((e as Error).message);

@@ -48,7 +48,7 @@ describe('todo binary (real process)', () => {
     const remaining = await json('list', '--all');
     assert.deepEqual(remaining.map((t: { id: number; title: string; done: boolean }) => [t.id, t.title, t.done]), [[2, 'Ship v2', false]]);
     const onDisk = JSON.parse(await readFile(ctx.file, 'utf8'));
-    assert.equal(onDisk.schemaVersion, 2);
+    assert.equal(onDisk.schemaVersion, 3);
     assert.equal(onDisk.nextId, 4, 'ids are never reused');
   });
 
@@ -89,7 +89,7 @@ describe('todo binary (real process)', () => {
     assert.equal(listed.code, 0, 'the store is still fully usable');
   });
 
-  it('[AC-5.1] a checked-in v1 store loads through the CLI with dueDate null and is rewritten as v2 on the next write (real process)', async () => {
+  it('[AC-5.1] a checked-in v1 store loads through the CLI with dueDate null and is rewritten as the current version on the next write (real process)', async () => {
     const { copyFile } = await import('node:fs/promises');
     const fixture = fileURLToPath(new URL('../fixtures/store-v1.json', import.meta.url));
     await copyFile(fixture, ctx.file);
@@ -107,10 +107,10 @@ describe('todo binary (real process)', () => {
     assert.equal(JSON.parse(added.stdout).id, 5, 'nextId from the v1 file is honoured');
 
     const onDisk = JSON.parse(await readFile(ctx.file, 'utf8'));
-    assert.equal(onDisk.schemaVersion, 2);
+    assert.equal(onDisk.schemaVersion, 3);
     assert.equal(onDisk.nextId, 6);
     for (const [i, old] of v1.tasks.entries()) {
-      assert.deepEqual(onDisk.tasks[i], { ...old, dueDate: null }, `task ${old.id} keeps every v1 field unchanged`);
+      assert.deepEqual(onDisk.tasks[i], { ...old, dueDate: null, priority: 'normal' }, `task ${old.id} keeps every v1 field unchanged`);
     }
     assert.equal(onDisk.tasks[3].title, 'y');
     assert.equal(onDisk.tasks[3].dueDate, null);
@@ -131,17 +131,84 @@ describe('todo binary (real process)', () => {
     });
   }
 
-  it('[AC-5.4] a schemaVersion 3 file is refused as written by a newer version and left unchanged (real process)', async () => {
-    const { writeFile } = await import('node:fs/promises');
-    const content = `${JSON.stringify({ schemaVersion: 3, nextId: 1, tasks: [] })}\n`;
-    await writeFile(ctx.file, content);
-    for (const args of [['list'], ['add', 'x']]) {
-      const result = await todo(...args);
-      assert.equal(result.code, 3, `${args.join(' ')} must exit with the storage status`);
-      assert.match(result.stderr ?? '', /written by a newer version/);
-      assert.equal(await readFile(ctx.file, 'utf8'), content, `${args.join(' ')} must leave the file byte-for-byte unchanged`);
+  it('[AC-5.4] [AC-21.4] a schemaVersion 4 file is refused as written by a newer version and left unchanged (real process)', async () => {
+    const { copyFile, writeFile } = await import('node:fs/promises');
+    const inline = `${JSON.stringify({ schemaVersion: 4, nextId: 1, tasks: [] })}\n`;
+    const fixture = await readFile(new URL('../fixtures/ux/store-v4.json', import.meta.url), 'utf8');
+    for (const content of [inline, fixture]) {
+      if (content === fixture) await copyFile(new URL('../fixtures/ux/store-v4.json', import.meta.url), ctx.file);
+      else await writeFile(ctx.file, content);
+      for (const args of [['list'], ['add', 'x'], ['done', '1']]) {
+        const result = await todo(...args);
+        assert.equal(result.code, 3, `${args.join(' ')} must exit with the storage status`);
+        assert.match(result.stderr ?? '', /written by a newer version/);
+        assert.match(result.stderr ?? '', /^hint:/m);
+        assert.equal(await readFile(ctx.file, 'utf8'), content, `${args.join(' ')} must leave the file byte-for-byte unchanged`);
+      }
     }
   });
+
+  const copyV2Fixture = async () => {
+    const { copyFile } = await import('node:fs/promises');
+    const fixture = fileURLToPath(new URL('../fixtures/store-v2.json', import.meta.url));
+    await copyFile(fixture, ctx.file);
+    return JSON.parse(await readFile(fixture, 'utf8')) as { schemaVersion: number; nextId: number; tasks: Record<string, unknown>[] };
+  };
+
+  it('[AC-21.2] `todo add` against a v2 store rewrites it as v3 with every earlier task unchanged apart from priority normal (real process)', async () => {
+    const v2 = await copyV2Fixture();
+    assert.equal(v2.schemaVersion, 2);
+    const added = await todo('add', 'Call mum', '--json');
+    assert.equal(added.code, 0, added.stderr);
+    assert.equal(JSON.parse(added.stdout).id, v2.nextId, 'nextId from the v2 file is honoured');
+    assert.equal(JSON.parse(added.stdout).priority, 'normal');
+
+    const onDisk = JSON.parse(await readFile(ctx.file, 'utf8'));
+    assert.equal(onDisk.schemaVersion, 3);
+    assert.equal(onDisk.nextId, v2.nextId + 1);
+    assert.equal(onDisk.tasks.length, v2.tasks.length + 1);
+    for (const [i, old] of v2.tasks.entries()) {
+      assert.deepEqual(onDisk.tasks[i], { ...old, priority: 'normal' }, `task ${String(old['id'])} keeps every v2 field unchanged`);
+    }
+    assert.equal(onDisk.tasks.at(-1).title, 'Call mum');
+    assert.equal(onDisk.tasks.at(-1).priority, 'normal');
+  });
+
+  it('[AC-21.2] the release smoke sequence (add → list --json → done → help) succeeds against a store that starts as v2 (real process)', async () => {
+    const v2 = await copyV2Fixture();
+    const add = await todo('add', 'Smoke test');
+    assert.equal(add.code, 0, add.stderr);
+    const list = await todo('list', '--json');
+    assert.equal(list.code, 0, list.stderr);
+    const listed = JSON.parse(list.stdout) as { id: number; title: string; priority: string }[];
+    const smoke = listed.find((t) => t.title === 'Smoke test');
+    assert.ok(smoke, 'the new task is listed');
+    assert.ok(listed.every((t) => t.priority === 'normal'));
+    const done = await todo('done', String(smoke.id));
+    assert.equal(done.code, 0, done.stderr);
+    const help = await todo('help');
+    assert.equal(help.code, 0, help.stderr);
+    assert.match(help.stdout, /todo/);
+    const onDisk = JSON.parse(await readFile(ctx.file, 'utf8'));
+    assert.equal(onDisk.schemaVersion, 3);
+    assert.equal(onDisk.tasks.length, v2.tasks.length + 1);
+  });
+
+  for (const [label, priorityJson] of [['missing', null], ['"urgent"', '"urgent"'], ['"High"', '"High"'], ['the number 1', '1']] as const) {
+    it(`[AC-21.3] a v3 file whose task priority is ${label} is refused as damaged with exit 3, error and hint, bytes unchanged (real process)`, async () => {
+      const { writeFile } = await import('node:fs/promises');
+      const priority = priorityJson === null ? '' : `,"priority":${priorityJson}`;
+      const content = `{"schemaVersion":3,"nextId":2,"tasks":[{"id":1,"title":"a","done":false,"createdAt":"2026-10-30T09:00:00.000Z","completedAt":null,"dueDate":null${priority}}]}\n`;
+      await writeFile(ctx.file, content);
+      for (const args of [['list'], ['add', 'x'], ['done', '1']]) {
+        const result = await todo(...args);
+        assert.equal(result.code, 3, `${args.join(' ')} must exit with the storage status`);
+        assert.match(result.stderr ?? '', /^error: .*damaged.*priority/m, 'an error line naming the bad field');
+        assert.match(result.stderr ?? '', /^hint: /m, 'a hint line');
+        assert.equal(await readFile(ctx.file, 'utf8'), content, `${args.join(' ')} must leave the file byte-for-byte unchanged`);
+      }
+    });
+  }
 
   it('[AC-1.4] exits with the storage status when the file is from the future', async () => {
     const { writeFile } = await import('node:fs/promises');

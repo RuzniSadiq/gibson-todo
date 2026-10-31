@@ -1,4 +1,33 @@
 {
   "schemaVersion": 3,
-  "tasks": []
+  "nextId": 4,
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Renew passport",
+      "done": false,
+      "createdAt": "2026-10-30T08:15:00.000Z",
+      "completedAt": null,
+      "dueDate": "2026-11-14",
+      "priority": "high"
+    },
+    {
+      "id": 2,
+      "title": "Book flights",
+      "done": true,
+      "createdAt": "2026-10-30T09:00:00.000Z",
+      "completedAt": "2026-10-31T17:42:10.123Z",
+      "dueDate": null,
+      "priority": "normal"
+    },
+    {
+      "id": 3,
+      "title": "Sort photos",
+      "done": false,
+      "createdAt": "2026-10-31T21:05:33.000Z",
+      "completedAt": null,
+      "dueDate": null,
+      "priority": "low"
+    }
+  ]
 }
