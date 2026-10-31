@@ -2,6 +2,7 @@ import type { Command } from './command.ts';
 import { addCommand } from './commands/add.ts';
 import { clearCommand } from './commands/clear.ts';
 import { doneCommand } from './commands/done.ts';
+import { dueCommand } from './commands/due.ts';
 import { editCommand } from './commands/edit.ts';
 import { listCommand } from './commands/list.ts';
 import { removeCommand } from './commands/remove.ts';
@@ -14,6 +15,7 @@ export const COMMANDS: readonly Command[] = [
   doneCommand,
   undoCommand,
   editCommand,
+  dueCommand,
   removeCommand,
   clearCommand,
 ];

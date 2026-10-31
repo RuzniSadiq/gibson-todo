@@ -1,3 +1,4 @@
+import { localCalendarDate, parseDueInput } from '../domain/due-date.ts';
 import { TodoError } from '../domain/errors.ts';
 import {
   completeTask,
@@ -25,10 +26,16 @@ export class TaskService {
     this.#clock = clock;
   }
 
-  async add(title: string): Promise<Task> {
+  /**
+   * `due` is user input as accepted by `parseDueInput` (YYYY-MM-DD, today,
+   * tomorrow, a weekday), resolved against the clock's local calendar date.
+   */
+  async add(title: string, due?: string): Promise<Task> {
     const now = this.#clock.now();
+    // Resolved before the unit of work, so a bad date never reaches storage.
+    const dueDate = due === undefined ? null : parseDueInput(due, localCalendarDate(now));
     return this.#repo.update((state) => {
-      const task = createTask(state.nextId, title, now);
+      const task: Task = { ...createTask(state.nextId, title, now), dueDate };
       return { state: { nextId: state.nextId + 1, tasks: [...state.tasks, task] }, result: task };
     });
   }
@@ -56,6 +63,14 @@ export class TaskService {
 
   async rename(id: TaskId, title: string): Promise<Task> {
     const [task] = await this.#replaceEach([id], (t) => renameTask(t, title));
+    // #replaceEach returns exactly one task per id or throws.
+    return task as Task;
+  }
+
+  /** Sets (`due` as accepted by `parseDueInput`) or clears (`null`) a task's due date. */
+  async setDue(id: TaskId, due: string | null): Promise<Task> {
+    const dueDate = due === null ? null : parseDueInput(due, localCalendarDate(this.#clock.now()));
+    const [task] = await this.#replaceEach([id], (t) => ({ ...t, dueDate }));
     // #replaceEach returns exactly one task per id or throws.
     return task as Task;
   }
