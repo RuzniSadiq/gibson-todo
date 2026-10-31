@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
-import { readdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { TaskService } from '../../src/application/task-service.ts';
@@ -78,20 +78,15 @@ describe('JsonFileRepository', () => {
     }
   });
 
-  it('[AC-1.3] recovers from a lock left by a crashed process', async () => {
+  it('[AC-1.3] never breaks a crashed process\'s lock; tells the user exactly what to do', async () => {
     await writeFile(`${ctx.file}.lock`, `${DEAD_PID} crashed`);
-    const repo = new JsonFileRepository(ctx.file, { timeoutMs: 500 });
-    assert.equal((await new TaskService(repo, fixedClock()).add('x')).id, 1);
-    assert.deepEqual(await readdir(ctx.dir), ['tasks.json'], 'no lock, breaker or staging files left');
-  });
-
-  it('[AC-1.3] breaks a dead holder\'s lock exactly once under contention', async () => {
-    await writeFile(`${ctx.file}.lock`, `${DEAD_PID} crashed`);
-    const writers = Array.from({ length: 25 }, (_, i) => new TaskService(new JsonFileRepository(ctx.file), fixedClock()).add(`t${i}`));
-    const ids = (await Promise.all(writers)).map((t) => t.id).sort((a, b) => a - b);
-    assert.deepEqual(ids, Array.from({ length: 25 }, (_, i) => i + 1), 'no lost or duplicated update');
-    assert.equal((await new JsonFileRepository(ctx.file).read()).tasks.length, 25);
-    assert.deepEqual(await readdir(ctx.dir), ['tasks.json']);
+    const repo = new JsonFileRepository(ctx.file, { timeoutMs: 40, retryMs: 5 });
+    await assert.rejects(new TaskService(repo, fixedClock()).add('x'), (e: unknown) =>
+      e instanceof TodoError && /no longer running/.test(e.message) && /Delete .*tasks\.json\.lock/.test(e.hint ?? ''));
+    assert.equal(await readFile(`${ctx.file}.lock`, 'utf8'), `${DEAD_PID} crashed`, 'the lock is left for the human');
+    await rm(`${ctx.file}.lock`);
+    assert.equal((await new TaskService(new JsonFileRepository(ctx.file), fixedClock()).add('x')).id, 1);
+    assert.deepEqual(await readdir(ctx.dir), ['tasks.json'], 'no lock or staging files left');
   });
 
   it('[AC-1.3] release only removes a lock that is still ours', async () => {

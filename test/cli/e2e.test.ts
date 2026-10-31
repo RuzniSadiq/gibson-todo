@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
+import { readFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -61,6 +61,32 @@ describe('todo binary (real process)', () => {
       assert.equal(result.code, 3, `${args[0]} must fail with the storage status`);
       assert.equal(await readFile(ctx.file, 'utf8'), future, `${args[0]} must leave the file byte-for-byte unchanged`);
     }
+  });
+
+  it('[AC-1.3] separate concurrent `todo add` processes never lose or duplicate a task', async () => {
+    const results = await Promise.all(Array.from({ length: 12 }, (_, i) => todo('add', `parallel ${i}`, '--json')));
+    for (const r of results) assert.equal(r.code, 0, r.stderr);
+    const ids = results.map((r) => JSON.parse(r.stdout).id).sort((a: number, b: number) => a - b);
+    assert.deepEqual(ids, Array.from({ length: 12 }, (_, i) => i + 1));
+    const listed = JSON.parse((await todo('list', '--json')).stdout);
+    assert.equal(listed.length, 12);
+  });
+
+  it('[AC-1.3] a writer killed at any moment leaves the old or the new file, never a torn one', async () => {
+    await todo('add', 'seed');
+    for (let round = 0; round < 15; round += 1) {
+      const before = JSON.parse(await readFile(ctx.file, 'utf8')).tasks.length;
+      const child = spawn(process.execPath, [MAIN, 'add', `round ${round}`], { env: { ...process.env, TODO_FILE: ctx.file }, stdio: 'ignore' });
+      const closed = new Promise((r) => child.once('close', r)); // listen before killing: it may already be done
+      await new Promise((r) => setTimeout(r, 20 + ((round * 37) % 90)));
+      child.kill('SIGKILL');
+      await closed;
+      const doc = JSON.parse(await readFile(ctx.file, 'utf8')); // must always parse completely
+      assert.ok([before, before + 1].includes(doc.tasks.length), `round ${round}: ${doc.tasks.length} tasks after ${before}`);
+      await rm(`${ctx.file}.lock`, { force: true }); // what the user is told to do after a crash
+    }
+    const listed = await todo('list', '--all', '--json');
+    assert.equal(listed.code, 0, 'the store is still fully usable');
   });
 
   it('[AC-1.4] exits with the storage status when the file is from the future', async () => {

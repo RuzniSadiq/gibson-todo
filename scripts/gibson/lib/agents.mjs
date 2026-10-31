@@ -9,11 +9,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { run } from './exec.mjs';
 
-const CLAUDE_TOOLS = {
+export const CLAUDE_TOOLS = {
   read: ['Read', 'Glob', 'Grep'],
   edit: [
     'Read', 'Glob', 'Grep', 'Edit', 'Write',
-    'Bash(npm run:*)', 'Bash(npm test:*)', 'Bash(node:*)', 'Bash(npx tsc:*)', 'Bash(npx eslint:*)',
+    'Bash(npm run gate)', 'Bash(npm run typecheck)', 'Bash(npm run lint)', 'Bash(npm run build)', 'Bash(npm test)',
+    'Bash(node --test:*)', 'Bash(node src/cli/main.ts:*)',
     'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(ls:*)',
   ],
   probe: ['Read', 'Glob', 'Grep', 'Bash(node dist/cli/main.js:*)', 'Bash(./dist/cli/main.js:*)', 'Bash(TODO_FILE=*)'],
@@ -23,6 +24,15 @@ const CLAUDE_DENY = [
   'Bash(npm install:*)', 'Bash(npm i:*)', 'Bash(rm -rf:*)', 'Bash(curl:*)', 'WebFetch', 'WebSearch',
 ];
 const CODEX_SANDBOX = { read: 'read-only', probe: 'read-only', edit: 'workspace-write' };
+
+// Builders and evaluators run without GitHub/SSH credentials: even code they
+// write and execute (tests) cannot push, call the GitHub API, or reach the
+// owner's keys. Residual risk (files on disk) is caught by the post-build
+// tamper check in deliver.mjs; full isolation needs an OS sandbox.
+export function scrubbedEnv(access, extra = {}) {
+  if (access === 'read') return extra;
+  return { ...extra, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_CONFIG_DIR: '/nonexistent-gibson', SSH_AUTH_SOCK: undefined, GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0' };
+}
 
 let counter = 0;
 
@@ -53,7 +63,7 @@ async function viaClaude(job) {
     '--disallowedTools', ...CLAUDE_DENY,
   ];
   if (job.model) args.push('--model', job.model);
-  const r = await run('claude', args, { cwd: job.cwd, input: job.prompt, timeoutSec: job.timeoutSec, env: job.env });
+  const r = await run('claude', args, { cwd: job.cwd, input: job.prompt, timeoutSec: job.timeoutSec, env: scrubbedEnv(job.access, job.env) });
   let parsed = null;
   try { parsed = JSON.parse(r.stdout); } catch { /* reported below */ }
   const text = parsed?.result ?? r.stdout;
@@ -71,7 +81,7 @@ async function viaCodex(job, transcript) {
   const args = ['exec', '--skip-git-repo-check', '-s', CODEX_SANDBOX[job.access], '-C', job.cwd, '-o', lastMessage];
   if (job.model) args.push('-m', job.model);
   args.push('-');
-  const r = await run('codex', args, { cwd: job.cwd, input: job.prompt, timeoutSec: job.timeoutSec, env: job.env });
+  const r = await run('codex', args, { cwd: job.cwd, input: job.prompt, timeoutSec: job.timeoutSec, env: scrubbedEnv(job.access, job.env) });
   let text = '';
   try { text = readFileSync(lastMessage, 'utf8'); } catch { text = r.stdout; }
   const model = /^model:\s*(\S+)/m.exec(`${r.stderr}\n${r.stdout}`)?.[1] ?? job.model ?? '';

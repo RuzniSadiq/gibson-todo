@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
+import { link, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { EMPTY_STATE, type Mutation, type TaskRepository, type TaskState } from '../../application/ports.ts';
@@ -13,14 +13,6 @@ export interface LockOptions {
 }
 
 const DEFAULT_LOCK: LockOptions = { timeoutMs: 5_000, retryMs: 15 };
-/** Breaking a lock takes microseconds; a breaker file older than this was abandoned by a crash. */
-const BREAKER_ABANDONED_MS = 5_000;
-
-interface LockHolder {
-  readonly pid: number;
-  readonly token: string;
-}
-
 /**
  * Stores tasks in one JSON file.
  *
@@ -32,13 +24,11 @@ interface LockHolder {
 export class JsonFileRepository implements TaskRepository {
   readonly #path: string;
   readonly #lockPath: string;
-  readonly #breakerPath: string;
   readonly #lock: LockOptions;
 
   constructor(path: string, lock: Partial<LockOptions> = {}) {
     this.#path = path;
     this.#lockPath = `${path}.lock`;
-    this.#breakerPath = `${path}.lock.break`;
     this.#lock = { ...DEFAULT_LOCK, ...lock };
   }
 
@@ -92,36 +82,35 @@ export class JsonFileRepository implements TaskRepository {
   }
 
   /**
-   * Lock protocol (safety over liveness — a live lock is never deleted):
-   *  - acquire: write "<pid> <token>" to a private temp file, then hard-link it
-   *    to `<file>.lock`. link(2) is atomic and fails if the lock exists, so a
-   *    lock is never observable empty or half-written;
-   *  - break: only when the holder process no longer exists, only by the one
-   *    process holding `<file>.lock.break`, and only after re-reading that the
-   *    token it judged dead is still the one on disk. A live holder is never
-   *    evicted, however slow (if a dead holder's PID is reused, the user gets a
-   *    clear error and a hint instead of a lost update);
-   *  - release: delete the lock only if it still carries our token.
+   * Lock protocol — mutual exclusion is exactly the atomicity of link(2):
+   *  - acquire: write "<pid> <token>" to a private staging file, then hard-link
+   *    it to `<file>.lock`. link fails if the lock exists, so there is one
+   *    holder at a time and a lock is never observable empty or half-written;
+   *  - release: delete the lock only if it still carries our token;
+   *  - a lock is NEVER broken automatically. Every path-based "steal a stale
+   *    lock" scheme races against a paused process (Node has no flock), and a
+   *    stale lock only exists if a todo process died mid-write. So the user
+   *    gets a precise, safe instruction instead (safety over liveness).
    */
   async #acquireLock(): Promise<() => Promise<void>> {
     const token = `${process.pid} ${randomUUID()}`;
     const deadline = Date.now() + this.#lock.timeoutMs;
     for (;;) {
       if (await this.#tryLink(token)) return () => this.#release(token);
-      if (await this.#breakIfStale()) continue;
-      if (Date.now() >= deadline) {
-        throw new TodoError('STORAGE', 'Another todo command is still writing the task file.', {
-          hint: `Try again. If it persists and no todo command is running, delete ${this.#lockPath}.`,
-        });
-      }
+      if (Date.now() >= deadline) throw await this.#busyError();
       await sleep(this.#lock.retryMs);
     }
   }
 
   async #tryLink(token: string): Promise<boolean> {
     const staging = `${this.#lockPath}.${process.pid}.${randomUUID()}`;
-    await this.#tryCreate(staging, token);
     try {
+      const handle = await open(staging, 'wx', 0o600);
+      try {
+        await handle.writeFile(token);
+      } finally {
+        await handle.close();
+      }
       await link(staging, this.#lockPath);
       return true;
     } catch (error) {
@@ -132,54 +121,24 @@ export class JsonFileRepository implements TaskRepository {
     }
   }
 
-  async #tryCreate(path: string, contents: string): Promise<boolean> {
-    try {
-      const handle = await open(path, 'wx', 0o600);
-      try {
-        await handle.writeFile(contents);
-      } finally {
-        await handle.close();
-      }
-      return true;
-    } catch (error) {
-      if (isErrno(error, 'EEXIST')) return false;
-      throw storageError('Could not lock the task file.', error);
+  async #busyError(): Promise<TodoError> {
+    const holder = await this.#readHolder();
+    const message = 'Another todo command is still writing the task file.';
+    if (holder && holder.pid > 0 && !processAlive(holder.pid)) {
+      return new TodoError('STORAGE', `${message} Its lock belongs to process ${holder.pid}, which is no longer running.`, {
+        hint: `A todo command crashed mid-write. Your tasks are intact (writes are atomic). Delete ${this.#lockPath} and retry.`,
+      });
     }
+    return new TodoError('STORAGE', message, {
+      hint: `Try again in a moment. If no todo command is running, delete ${this.#lockPath}.`,
+    });
   }
 
-  /** Returns true when the caller should retry acquiring immediately. */
-  async #breakIfStale(): Promise<boolean> {
-    if (!(await this.#tryCreate(this.#breakerPath, String(process.pid)))) {
-      await this.#clearAbandonedBreaker();
-      return false;
-    }
+  async #readHolder(): Promise<{ pid: number; token: string } | null> {
     try {
-      const holder = await this.#readHolder();
-      if (!holder) return true; // released meanwhile
-      if (holder.pid <= 0 || processAlive(holder.pid)) return false; // unreadable or alive: never break
-      const again = await this.#readHolder();
-      if (again?.token !== holder.token) return true; // changed hands: never delete a lock we did not judge
-      await rm(this.#lockPath, { force: true });
-      return true;
-    } finally {
-      await rm(this.#breakerPath, { force: true });
-    }
-  }
-
-  async #clearAbandonedBreaker(): Promise<void> {
-    try {
-      const info = await stat(this.#breakerPath);
-      if (Date.now() - info.mtimeMs > BREAKER_ABANDONED_MS) await rm(this.#breakerPath, { force: true });
-    } catch {
-      // gone already
-    }
-  }
-
-  async #readHolder(): Promise<LockHolder | null> {
-    try {
-      const text = await readFile(this.#lockPath, 'utf8');
-      const pid = Number(text.split(' ')[0]);
-      return { pid: Number.isInteger(pid) ? pid : -1, token: text };
+      const token = await readFile(this.#lockPath, 'utf8');
+      const pid = Number(token.split(' ')[0]);
+      return { pid: Number.isInteger(pid) ? pid : -1, token };
     } catch (error) {
       if (isErrno(error, 'ENOENT')) return null;
       throw storageError('Could not inspect the task file lock.', error);
@@ -194,7 +153,6 @@ export class JsonFileRepository implements TaskRepository {
 
 /** True when a process with this pid exists (EPERM = exists, owned by someone else). */
 function processAlive(pid: number): boolean {
-  if (pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;

@@ -85,11 +85,15 @@ async function builder(ctx, issue, extra, label) {
     acIds: issue.acs.map((a) => a.id).join(', '), firstAc: issue.acs[0].id,
   });
   const before = await git.headSha(issue.worktree);
+  const remoteBefore = (await git.git(issue.worktree, ['ls-remote', 'origin', issue.branch])).trim();
   const stop = ui.spinner(`${role.vendor} (${role.model}) ${label}`);
   const res = await ctx.dispatch({ role: 'builder', ...role, access: 'edit', prompt, cwd: issue.worktree, timeoutSec: extra ? config.timeoutsSec.fix : config.timeoutsSec.build, runDir: run.dir });
   stop();
   if (!res.ok) throw new Park('blocked', `builder failed: ${res.error}`);
   if ((await git.headSha(issue.worktree)) !== before) throw new Park('blocked', 'builder created a commit itself — forbidden (only the harness commits, after verification)');
+  if ((await git.git(issue.worktree, ['ls-remote', 'origin', issue.branch])).trim() !== remoteBefore) {
+    throw new Park('halt', 'the remote branch changed while the builder ran — an agent pushed despite having no credentials', 'G16');
+  }
   const changed = await git.workingChanges(issue.worktree);
   if (!changed.length) throw new Park('blocked', 'builder finished without changing any file (a no-op diff never ships)');
   issue.builderReport = extractJson(res.text) ?? { summary: res.text.slice(-800) };

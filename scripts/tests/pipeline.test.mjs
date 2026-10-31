@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { render } from '../gibson/lib/agents.mjs';
+import { CLAUDE_TOOLS, render, scrubbedEnv } from '../gibson/lib/agents.mjs';
 import { loadConfig, validateRouting } from '../gibson/lib/config.mjs';
 import { acIdsFromBody, evaluateContract, parseTap } from '../gibson/lib/contract.mjs';
 import { extractJson, finalVerdict } from '../gibson/lib/jsonx.mjs';
@@ -92,5 +92,13 @@ describe('pipeline: sensors and guards', () => {
       const keys = [...text.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
       assert.equal(render(text, Object.fromEntries(keys.map((k) => [k, 'x']))).includes('{{'), false, role);
     }
+  });
+
+  it('[AC-1.8] builders cannot run arbitrary code tools or reach GitHub/SSH credentials', () => {
+    assert.ok(!CLAUDE_TOOLS.edit.some((t) => ['Bash(node:*)', 'Bash(npm run:*)'].includes(t)), 'no wildcard node / npm run');
+    const env = scrubbedEnv('edit');
+    for (const k of ['GH_TOKEN', 'GITHUB_TOKEN', 'SSH_AUTH_SOCK']) assert.equal(env[k], undefined);
+    assert.equal(env.GIT_SSH_COMMAND, 'false');
+    assert.deepEqual(scrubbedEnv('read'), {}, 'read-only reviewers keep their own vendor auth untouched');
   });
 });
