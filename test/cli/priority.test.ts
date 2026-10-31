@@ -51,7 +51,9 @@ describe('priorities via the CLI (real JSON store)', () => {
     assert.equal((await json('add', 'Water plants', '-p', 'low')).priority, 'low');
     assert.equal((await json('add', 'No rush')).priority, 'normal');
     assert.deepEqual((await onDisk()).tasks.map((t) => t.priority), ['high', 'low', 'normal']);
-    assert.deepEqual((await json('list')).map((t: JsonTask) => t.priority), ['high', 'low', 'normal']);
+    // Since #23, list sorts by priority (high, normal, low); the stored order above is unchanged.
+    const listed: JsonTask[] = await json('list');
+    assert.deepEqual(listed.map((t) => [t.id, t.priority]), [[1, 'high'], [3, 'normal'], [2, 'low']]);
   });
 
   it('[AC-22.1] --priority works with --due, and --priority HIGH stores high', async () => {
