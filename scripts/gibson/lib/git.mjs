@@ -51,7 +51,8 @@ export async function diffStat(cwd, base) {
   return { files: rows.length, lines };
 }
 
-export const diff = (cwd, base) => git(cwd, ['diff', `${base}...HEAD`]);
+/** Review diff. Lockfiles are excluded: the supply-chain layer audits them, and they drown the signal. */
+export const diff = (cwd, base) => git(cwd, ['diff', `${base}...HEAD`, '--', '.', ':(exclude)package-lock.json']);
 
 export async function commitAll(cwd, message) {
   await git(cwd, ['add', '-A']);
