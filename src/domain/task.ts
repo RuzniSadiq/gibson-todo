@@ -41,11 +41,15 @@ export function normalizeTitle(raw: string): string {
   return title;
 }
 
-const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+// Sticky + explicit length check: the match must cover the whole string, so no
+// leading/trailing characters (including a trailing line terminator) can slip in.
+const CALENDAR_DATE = /([0-9]{4})-([0-9]{2})-([0-9]{2})/y;
+const CALENDAR_DATE_LENGTH = 10;
 
 /** True only for a real calendar date written as YYYY-MM-DD (rejects e.g. 2026-02-30). */
 export function isCalendarDate(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
+  if (typeof value !== 'string' || value.length !== CALENDAR_DATE_LENGTH) return false;
+  CALENDAR_DATE.lastIndex = 0;
   const match = CALENDAR_DATE.exec(value);
   if (!match) return false;
   const year = Number(match[1]);
