@@ -29,6 +29,12 @@
     "maxActiveLanes": 3
   },
 
+  "reviewEvidence": {
+    "$comment": "Only comments POSTED BY these GitHub logins count as review evidence / owner approval. Today the harness posts reviews through the owner's account, so independence is by vendor + session, not by GitHub identity. G14 follow-up: give the reviewer its own bot login and list only that login under reviewerLogins.",
+    "reviewerLogins": ["RuzniSadiq"],
+    "ownerLogins": ["RuzniSadiq"]
+  },
+
   "requiredChecks": ["gate", "dco", "test-integrity", "secrets", "contract", "tier-drift", "gibson/review-evidence"],
 
   "memoryPaths": ["MEMORY.md", "memory/**"],

@@ -1,7 +1,7 @@
 // DECOMPOSE: approved plan → dependency-ordered issues with sprint contracts.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { dispatch, render } from '../lib/agents.mjs';
+import { render } from '../lib/agents.mjs';
 import { scopesOverlap } from '../lib/glob.mjs';
 import { extractJson } from '../lib/jsonx.mjs';
 import { scanInjectionInText } from '../lib/security.mjs';
@@ -85,7 +85,7 @@ export async function decomposeStage(ctx, plan, epic) {
   for (let attempt = 0; attempt < 2 && !issues; attempt += 1) {
     const prompt = render(template, { plan: JSON.stringify(plan, null, 2), maxIssues: config.limits.maxIssuesPerRequest }) + note;
     const stop = ui.spinner(`${role.vendor} (${role.model || 'default'}) is decomposing`);
-    const res = await dispatch({ role: 'decomposer', ...role, access: 'read', prompt, cwd: config.snapshotDir, timeoutSec: config.timeoutsSec.decompose, runDir: run.dir });
+    const res = await ctx.dispatch({ role: 'decomposer', ...role, access: 'read', prompt, cwd: config.snapshotDir, timeoutSec: config.timeoutsSec.decompose, runDir: run.dir });
     stop();
     if (!res.ok) throw new Park('blocked', `decomposer failed: ${res.error}`);
     const candidate = extractJson(res.text)?.issues;

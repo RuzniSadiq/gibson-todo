@@ -113,6 +113,20 @@ export class GitHub {
   }
 
 
+  /** Issue-thread comments on a PR, normalized for evidence evaluation. */
+  async prComments(number) {
+    const pages = JSON.parse(await must('gh', ['api', '--paginate', '--slurp', `repos/${this.repo}/issues/${number}/comments?per_page=100`], { timeoutSec: 120 }));
+    return pages.flat().map((c) => ({ body: c.body ?? '', author: c.user?.login ?? '', authorAssociation: c.author_association, createdAt: c.created_at }));
+  }
+
+  async openInBrowser(number) {
+    await run('gh', ['pr', 'view', String(number), '--web', '-R', this.repo], { timeoutSec: 30 });
+  }
+
+  async enableAutoMerge(number) {
+    await this.#gh(['pr', 'merge', String(number), '--squash', '--auto'], { timeoutSec: 60 });
+  }
+
   async viewer() {
     return (await must('gh', ['api', 'user', '--jq', '.login'], { timeoutSec: 60 })).trim();
   }

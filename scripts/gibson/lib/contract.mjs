@@ -27,7 +27,9 @@ export function evaluateContract(ids, tests) {
   return { met: rows.filter((r) => r.met), unmet: rows.filter((r) => !r.met), rows };
 }
 
+// NODE_TEST_CONTEXT is dropped: when the harness itself runs under `node --test`,
+// an inherited value makes the nested runner emit its internal protocol, not TAP.
 export async function runTapTests(cwd, globs, timeoutSec = 600) {
-  const r = await run(process.execPath, ['--test', '--test-reporter=tap', ...globs], { cwd, timeoutSec, env: { NO_COLOR: '1' } });
+  const r = await run(process.execPath, ['--test', '--test-reporter=tap', ...globs], { cwd, timeoutSec, env: { NO_COLOR: '1', NODE_TEST_CONTEXT: undefined } });
   return { ...parseTap(r.stdout), code: r.code, raw: r.stdout, stderr: r.stderr };
 }

@@ -17,26 +17,29 @@ const STAGE_COLOR = {
 };
 
 export const isInteractive = () => Boolean(process.stdin.isTTY && process.stdout.isTTY);
+// GIBSON_QUIET=1 silences progress output (used by the pipeline's own tests).
+const log = (...args) => { if (process.env.GIBSON_QUIET !== '1') console.log(...args); };
 
 export function stage(name, message) {
   const color = STAGE_COLOR[name] ?? c.bold;
-  console.log(`${color(c.bold(`[${name.padEnd(9)}]`))} ${message}`);
+  log(`${color(c.bold(`[${name.padEnd(9)}]`))} ${message}`);
 }
-export const info = (m) => console.log(`            ${c.dim(m)}`);
-export const ok = (m) => console.log(`            ${c.green('✔')} ${m}`);
-export const warn = (m) => console.log(`            ${c.yellow('▲')} ${m}`);
-export const fail = (m) => console.log(`            ${c.red('✖')} ${m}`);
+export { log };
+export const info = (m) => log(`            ${c.dim(m)}`);
+export const ok = (m) => log(`            ${c.green('✔')} ${m}`);
+export const warn = (m) => log(`            ${c.yellow('▲')} ${m}`);
+export const fail = (m) => log(`            ${c.red('✖')} ${m}`);
 
 export function banner(title, subtitle) {
   const line = '─'.repeat(Math.max(title.length, subtitle?.length ?? 0) + 4);
-  console.log(`\n${c.bold(line)}\n  ${c.bold(title)}${subtitle ? `\n  ${c.dim(subtitle)}` : ''}\n${c.bold(line)}`);
+  log(`\n${c.bold(line)}\n  ${c.bold(title)}${subtitle ? `\n  ${c.dim(subtitle)}` : ''}\n${c.bold(line)}`);
 }
 
 /** Prints a boxed panel of pre-wrapped lines. */
 export function panel(title, lines) {
-  console.log(`\n  ${c.bold(c.inverse(` ${title} `))}`);
-  for (const l of lines) console.log(`  ${c.dim('│')} ${l}`);
-  console.log('');
+  log(`\n  ${c.bold(c.inverse(` ${title} `))}`);
+  for (const l of lines) log(`  ${c.dim('│')} ${l}`);
+  log('');
 }
 
 /** The Ask Contract: what / what it does / why / risks — always all four. */
@@ -60,8 +63,9 @@ export async function prompt(question) {
 
 /** A spinner with elapsed time for long agent runs. Returns stop(). */
 export function spinner(label) {
+  if (process.env.GIBSON_QUIET === '1') return () => {};
   if (!process.stdout.isTTY) {
-    console.log(`            ${c.dim('…')} ${label}`);
+    log(`            ${c.dim('…')} ${label}`);
     return () => {};
   }
   const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

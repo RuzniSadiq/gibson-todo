@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { writeFileSync } from 'node:fs';
+import { readdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { TaskService } from '../../src/application/task-service.ts';
 import { TodoError } from '../../src/domain/errors.ts';
 import { JsonFileRepository } from '../../src/infrastructure/storage/json-file-repository.ts';
 import { fixedClock, tempDir } from '../helpers.ts';
+
+// Far above any real pid on macOS/Linux, so it never names a live process.
+const DEAD_PID = 2_147_483_000;
 
 describe('JsonFileRepository', () => {
   let ctx: Awaited<ReturnType<typeof tempDir>>;
@@ -49,15 +53,43 @@ describe('JsonFileRepository', () => {
     assert.equal(await readFile(ctx.file, 'utf8'), '{ not json');
   });
 
-  it('[AC-1.3] times out instead of hanging when another writer holds the lock', async () => {
-    await writeFile(`${ctx.file}.lock`, '999999');
+  it('[AC-1.3] times out instead of hanging while a live process holds the lock', async () => {
+    await writeFile(`${ctx.file}.lock`, `${process.pid} live-holder`);
+    const repo = new JsonFileRepository(ctx.file, { timeoutMs: 60, retryMs: 5 });
+    await assert.rejects(new TaskService(repo, fixedClock()).add('x'), /still writing/);
+    assert.equal(await readFile(`${ctx.file}.lock`, 'utf8'), `${process.pid} live-holder`, 'a live lock is never deleted');
+  });
+
+  it('[AC-1.3] never breaks a live lock, even an old one, before the age limit', async () => {
+    await writeFile(`${ctx.file}.lock`, `${process.pid} slow-holder`);
+    const old = new Date(Date.now() - 60_000);
+    await utimes(`${ctx.file}.lock`, old, old);
     const repo = new JsonFileRepository(ctx.file, { timeoutMs: 60, retryMs: 5 });
     await assert.rejects(new TaskService(repo, fixedClock()).add('x'), /still writing/);
   });
 
-  it('[AC-1.3] recovers from a stale lock left by a crashed process', async () => {
-    await writeFile(`${ctx.file}.lock`, '999999');
-    const repo = new JsonFileRepository(ctx.file, { staleMs: 0, timeoutMs: 500 });
+  it('[AC-1.3] recovers from a lock left by a crashed process', async () => {
+    await writeFile(`${ctx.file}.lock`, `${DEAD_PID} crashed`);
+    const repo = new JsonFileRepository(ctx.file, { timeoutMs: 500 });
     assert.equal((await new TaskService(repo, fixedClock()).add('x')).id, 1);
+  });
+
+  it('[AC-1.3] breaks a dead holder\'s lock exactly once under contention', async () => {
+    await writeFile(`${ctx.file}.lock`, `${DEAD_PID} crashed`);
+    const writers = Array.from({ length: 25 }, (_, i) => new TaskService(new JsonFileRepository(ctx.file), fixedClock()).add(`t${i}`));
+    const ids = (await Promise.all(writers)).map((t) => t.id).sort((a, b) => a - b);
+    assert.deepEqual(ids, Array.from({ length: 25 }, (_, i) => i + 1), 'no lost or duplicated update');
+    assert.equal((await new JsonFileRepository(ctx.file).read()).tasks.length, 25);
+    assert.deepEqual(await readdir(ctx.dir), ['tasks.json']);
+  });
+
+  it('[AC-1.3] release only removes a lock that is still ours', async () => {
+    const repo = new JsonFileRepository(ctx.file);
+    await repo.update((state) => {
+      // Simulate another process having taken over the lock while we held it.
+      writeFileSync(`${ctx.file}.lock`, `${process.pid} someone-else`);
+      return { state, result: null };
+    });
+    assert.equal(await readFile(`${ctx.file}.lock`, 'utf8'), `${process.pid} someone-else`);
   });
 });

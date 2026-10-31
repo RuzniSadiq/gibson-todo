@@ -21,7 +21,7 @@ export async function runGate(cwd, { timeoutSec = 600 } = {}) {
   for (const name of STEPS) {
     const command = gate[name];
     if (!command) { steps.push({ name, status: 'n/a' }); continue; }
-    const r = await run('bash', ['-c', command], { cwd, timeoutSec, env: { NO_COLOR: '1', FORCE_COLOR: '0' } });
+    const r = await run('bash', ['-c', command], { cwd, timeoutSec, env: { NO_COLOR: '1', FORCE_COLOR: '0', NODE_TEST_CONTEXT: undefined } });
     const output = `${r.stdout}\n${r.stderr}`;
     steps.push({
       name, command, status: r.code === 0 ? 'pass' : 'fail', code: r.code, durationMs: r.durationMs,

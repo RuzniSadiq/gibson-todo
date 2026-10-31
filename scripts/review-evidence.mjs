@@ -17,7 +17,7 @@ const api = async (path, extra = []) => JSON.parse(await must('gh', ['api', ...e
 const pr = await api(`pulls/${values.pr}`);
 const files = (await api(`pulls/${values.pr}/files?per_page=100`, ['--paginate', '--slurp'])).flat().map((f) => f.filename);
 const comments = (await api(`issues/${values.pr}/comments?per_page=100`, ['--paginate', '--slurp'])).flat()
-  .map((c) => ({ body: c.body ?? '', authorAssociation: c.author_association, createdAt: c.created_at }));
+  .map((c) => ({ body: c.body ?? '', author: c.user?.login ?? '', authorAssociation: c.author_association, createdAt: c.created_at }));
 
 const verdict = evaluateEvidence({
   headSha: pr.head.sha, labels: pr.labels.map((l) => l.name), body: pr.body ?? '', files, comments,

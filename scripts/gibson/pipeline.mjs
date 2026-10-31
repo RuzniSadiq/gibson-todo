@@ -3,6 +3,7 @@
 // Owner interruptions happen ONLY at AGENTS.md human gates (plan approval G10,
 // scope growth G11, Tier C merge G12, secrets G4, injection G16).
 import { writeFileSync } from 'node:fs';
+import { dispatch } from './lib/agents.mjs';
 import { loadConfig, validateRouting } from './lib/config.mjs';
 import { run as exec } from './lib/exec.mjs';
 import { GitHub } from './lib/github.mjs';
@@ -16,7 +17,9 @@ import { retro } from './stages/retro.mjs';
 
 export function context(run, overrides = {}) {
   const config = loadConfig();
-  return { config, run, gh: new GitHub(config.repo), interactive: ui.isInteractive(), ...overrides };
+  // Every side-effecting dependency is injectable: agent runners, GitHub and
+  // the owner's terminal. Production uses the real ones; tests inject fakes.
+  return { config, run, gh: new GitHub(config.repo), dispatch, prompt: ui.prompt, interactive: ui.isInteractive(), ...overrides };
 }
 
 /** Preflight: refuse to start a run that could not finish honestly. */
@@ -54,8 +57,8 @@ function report(ctx, park, issue) {
   }
   run.journal(park.gate ?? park.kind.toUpperCase(), `${where} stopped: ${park.message}`);
   const label = park.kind === 'awaiting-owner' ? ui.c.yellow(`⏸  WAITING FOR YOU${park.gate ? ` (${park.gate})` : ''}`) : park.kind === 'halt' ? ui.c.red(`⛔ FLEET HALTED${park.gate ? ` (${park.gate})` : ''}`) : ui.c.red('■ BLOCKED');
-  console.log(`\n            ${label} ${where}: ${park.message.split('\n')[0]}`);
-  for (const l of park.message.split('\n').slice(1, 12)) console.log(`              ${ui.c.dim(l)}`);
+  ui.log(`\n            ${label} ${where}: ${park.message.split('\n')[0]}`);
+  for (const l of park.message.split('\n').slice(1, 12)) ui.log(`              ${ui.c.dim(l)}`);
 }
 
 async function postPark(ctx, park, issue) {

@@ -2,7 +2,7 @@
 // OWNER approves — silence never auto-approves.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { dispatch, render } from '../lib/agents.mjs';
+import { render } from '../lib/agents.mjs';
 import { syncDetachedWorktree } from '../lib/git.mjs';
 import { extractJson } from '../lib/jsonx.mjs';
 import { scanInjectionInText } from '../lib/security.mjs';
@@ -77,7 +77,7 @@ async function draft(ctx, request, revisionNote) {
   const prompt = render(template, { request, revisionNote: revisionNote ? `## Owner feedback on the previous draft\n${revisionNote}` : '' });
   const role = config.routing.planner;
   const stop = ui.spinner(`${role.vendor} (${role.model || 'default'}) is drafting the plan`);
-  const res = await dispatch({ role: 'planner', ...role, access: 'read', prompt, cwd: config.snapshotDir, timeoutSec: config.timeoutsSec.plan, runDir: run.dir });
+  const res = await ctx.dispatch({ role: 'planner', ...role, access: 'read', prompt, cwd: config.snapshotDir, timeoutSec: config.timeoutsSec.plan, runDir: run.dir });
   stop();
   if (!res.ok) throw new Park('blocked', `planner failed: ${res.error}`);
   const plan = extractJson(res.text);
@@ -117,7 +117,7 @@ export async function planStage(ctx) {
       why: 'Changing a plan costs seconds; changing shipped code costs hours. This is the cheapest moment to steer.',
       risks: `Low. Nothing merges without passing tests and an independent review.${plan.tier === 'C' ? ' Tier C parts come back to you before merging.' : ''} Every change is a separate PR that can be reverted.`,
     });
-    const answer = (await ui.prompt('[a]pprove · [r]evise · [c]ancel ›')).toLowerCase();
+    const answer = (await ctx.prompt('[a]pprove · [r]evise · [c]ancel ›')).toLowerCase();
     if (answer.startsWith('a') || answer === 'y' || answer === 'yes') {
       run.state.approval = { at: new Date().toISOString(), by: 'owner (interactive terminal)', attempt };
       run.journal('PLAN', 'Owner APPROVED the plan (human gate, recorded)');
@@ -127,7 +127,7 @@ export async function planStage(ctx) {
       run.journal('PLAN', 'Owner cancelled the request');
       return null;
     }
-    note = await ui.prompt('What should change?');
+    note = await ctx.prompt('What should change?');
     run.journal('PLAN', `Owner asked for a revision: "${note}"`);
   }
   throw new Park('awaiting-owner', 'plan revision limit reached — start a new request with a clearer brief', 'G10');

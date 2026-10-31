@@ -18,9 +18,11 @@ export function run(cmd, args, opts = {}) {
     let timedOut = false;
     let child;
     try {
+      // An `undefined` value removes the variable from the child's environment.
+      const childEnv = Object.fromEntries(Object.entries({ ...process.env, ...env }).filter(([, v]) => v !== undefined));
       child = spawn(cmd, args, {
         cwd,
-        env: { ...process.env, ...env },
+        env: childEnv,
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: true,
       });

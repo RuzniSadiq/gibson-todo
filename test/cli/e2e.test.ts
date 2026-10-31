@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -27,6 +28,28 @@ describe('todo binary (real process)', () => {
     await todo('add', 'Persist', 'me');
     const listed = await todo('list', '--json');
     assert.equal(JSON.parse(listed.stdout)[0].title, 'Persist me');
+  });
+
+  it('[AC-1.1] runs add → list → done → undo → edit → rm → clear against the JSON store (real process)', async () => {
+    const json = async (...args: string[]) => {
+      const r = await todo(...args, '--json');
+      assert.equal(r.code, 0, `${args.join(' ')} failed: ${r.stderr}`);
+      return JSON.parse(r.stdout);
+    };
+    assert.equal((await json('add', 'Buy milk')).id, 1);
+    assert.equal((await json('add', 'Ship release')).id, 2);
+    assert.equal((await json('add', 'Water plants')).id, 3);
+    assert.equal((await json('done', '1', '2'))[1].done, true);
+    assert.deepEqual((await json('list')).map((t: { id: number }) => t.id), [3]);
+    assert.equal((await json('undo', '2'))[0].done, false);
+    assert.equal((await json('edit', '2', 'Ship', 'v2')).title, 'Ship v2');
+    assert.equal((await json('rm', '3'))[0].id, 3);
+    assert.deepEqual(await json('clear'), { removed: 1 });
+    const remaining = await json('list', '--all');
+    assert.deepEqual(remaining.map((t: { id: number; title: string; done: boolean }) => [t.id, t.title, t.done]), [[2, 'Ship v2', false]]);
+    const onDisk = JSON.parse(await readFile(ctx.file, 'utf8'));
+    assert.equal(onDisk.schemaVersion, 1);
+    assert.equal(onDisk.nextId, 4, 'ids are never reused');
   });
 
   it('[AC-1.4] exits with the storage status when the file is from the future', async () => {

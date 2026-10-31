@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -8,12 +9,23 @@ import { decodeStore, encodeStore } from './schema.ts';
 export interface LockOptions {
   /** How long to wait for another writer before giving up. */
   readonly timeoutMs: number;
-  /** A lock older than this is treated as abandoned by a crashed process. */
+  /**
+   * Last-resort age limit. Normally a lock is broken only when its holder's
+   * process no longer exists; this bounds the damage of PID reuse.
+   */
   readonly staleMs: number;
   readonly retryMs: number;
 }
 
-const DEFAULT_LOCK: LockOptions = { timeoutMs: 5_000, staleMs: 30_000, retryMs: 15 };
+const DEFAULT_LOCK: LockOptions = { timeoutMs: 5_000, staleMs: 10 * 60_000, retryMs: 15 };
+/** Breaking a lock takes microseconds; a breaker file older than this was abandoned by a crash. */
+const BREAKER_ABANDONED_MS = 5_000;
+
+interface LockHolder {
+  readonly pid: number;
+  readonly token: string;
+  readonly ageMs: number;
+}
 
 /**
  * Stores tasks in one JSON file.
@@ -26,11 +38,13 @@ const DEFAULT_LOCK: LockOptions = { timeoutMs: 5_000, staleMs: 30_000, retryMs: 
 export class JsonFileRepository implements TaskRepository {
   readonly #path: string;
   readonly #lockPath: string;
+  readonly #breakerPath: string;
   readonly #lock: LockOptions;
 
   constructor(path: string, lock: Partial<LockOptions> = {}) {
     this.#path = path;
     this.#lockPath = `${path}.lock`;
+    this.#breakerPath = `${path}.lock.break`;
     this.#lock = { ...DEFAULT_LOCK, ...lock };
   }
 
@@ -83,40 +97,98 @@ export class JsonFileRepository implements TaskRepository {
     }
   }
 
+  /**
+   * Lock protocol:
+   *  - acquire = exclusive create (O_EXCL) of `<file>.lock` holding "<pid> <token>";
+   *  - a lock is broken only if its holder process is gone (or, as a last
+   *    resort, it is older than staleMs), and only by the single process that
+   *    holds `<file>.lock.break`, after re-reading that the token it judged
+   *    stale is still the one on disk — so a live lock is never deleted;
+   *  - release deletes the lock only if it still carries our token.
+   */
   async #acquireLock(): Promise<() => Promise<void>> {
+    const token = `${process.pid} ${randomUUID()}`;
     const deadline = Date.now() + this.#lock.timeoutMs;
     for (;;) {
-      try {
-        const handle = await open(this.#lockPath, 'wx', 0o600);
-        try {
-          await handle.writeFile(String(process.pid));
-        } finally {
-          await handle.close();
-        }
-        return () => rm(this.#lockPath, { force: true });
-      } catch (error) {
-        if (!isErrno(error, 'EEXIST')) throw storageError('Could not lock the task file.', error);
-      }
-      if (await this.#lockIsStale()) {
-        await rm(this.#lockPath, { force: true });
-        continue;
-      }
+      if (await this.#tryCreate(this.#lockPath, token)) return () => this.#release(token);
+      if (await this.#breakIfStale()) continue;
       if (Date.now() >= deadline) {
         throw new TodoError('STORAGE', 'Another todo command is still writing the task file.', {
-          hint: `Try again. If it persists, delete ${this.#lockPath}.`,
+          hint: `Try again. If it persists and no todo command is running, delete ${this.#lockPath}.`,
         });
       }
       await sleep(this.#lock.retryMs);
     }
   }
 
-  async #lockIsStale(): Promise<boolean> {
+  async #tryCreate(path: string, contents: string): Promise<boolean> {
     try {
-      const info = await stat(this.#lockPath);
-      return Date.now() - info.mtimeMs > this.#lock.staleMs;
-    } catch {
-      return false; // vanished between attempts: simply retry
+      const handle = await open(path, 'wx', 0o600);
+      try {
+        await handle.writeFile(contents);
+      } finally {
+        await handle.close();
+      }
+      return true;
+    } catch (error) {
+      if (isErrno(error, 'EEXIST')) return false;
+      throw storageError('Could not lock the task file.', error);
     }
+  }
+
+  /** Returns true when the caller should retry acquiring immediately. */
+  async #breakIfStale(): Promise<boolean> {
+    if (!(await this.#tryCreate(this.#breakerPath, String(process.pid)))) {
+      await this.#clearAbandonedBreaker();
+      return false;
+    }
+    try {
+      const holder = await this.#readHolder();
+      if (!holder) return true; // released meanwhile
+      if (processAlive(holder.pid) && holder.ageMs <= this.#lock.staleMs) return false;
+      const again = await this.#readHolder();
+      if (again?.token !== holder.token) return true; // changed hands: never delete a lock we did not judge
+      await rm(this.#lockPath, { force: true });
+      return true;
+    } finally {
+      await rm(this.#breakerPath, { force: true });
+    }
+  }
+
+  async #clearAbandonedBreaker(): Promise<void> {
+    try {
+      const info = await stat(this.#breakerPath);
+      if (Date.now() - info.mtimeMs > BREAKER_ABANDONED_MS) await rm(this.#breakerPath, { force: true });
+    } catch {
+      // gone already
+    }
+  }
+
+  async #readHolder(): Promise<LockHolder | null> {
+    try {
+      const [text, info] = await Promise.all([readFile(this.#lockPath, 'utf8'), stat(this.#lockPath)]);
+      const pid = Number(text.split(' ')[0]);
+      return { pid: Number.isInteger(pid) ? pid : -1, token: text, ageMs: Date.now() - info.mtimeMs };
+    } catch (error) {
+      if (isErrno(error, 'ENOENT')) return null;
+      throw storageError('Could not inspect the task file lock.', error);
+    }
+  }
+
+  async #release(token: string): Promise<void> {
+    const holder = await this.#readHolder();
+    if (holder?.token === token) await rm(this.#lockPath, { force: true });
+  }
+}
+
+/** True when a process with this pid exists (EPERM = exists, owned by someone else). */
+function processAlive(pid: number): boolean {
+  if (pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return isErrno(error, 'EPERM');
   }
 }
 

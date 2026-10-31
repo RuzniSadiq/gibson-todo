@@ -65,3 +65,28 @@ _Last updated: 2026-11-01_
 - **Fix / rule:** Required-check jobs never skip on a non-draft PR. Checks that
   must re-run on label changes (`tier-drift`) live in their own workflow.
 - **Links:** issue #1, PR #2
+
+## 2026-11-01 — nested-node-test-context
+
+- **What happened:** The contract sensor reported "no test carries the tag" for
+  tests that existed and passed — but only when the harness itself ran under
+  `node --test` (the pipeline end-to-end test).
+- **Root cause:** `node --test` sets `NODE_TEST_CONTEXT` for its children; a nested
+  `node --test` that inherits it emits the runner's internal protocol, not TAP.
+- **Fix / rule:** Sensors that spawn `node --test` drop `NODE_TEST_CONTEXT`
+  (`exec.run` treats an `undefined` env value as "unset"). Covered by
+  `scripts/tests/pipeline-e2e.test.mjs`.
+- **Links:** issue #1, PR #2
+
+## 2026-11-01 — review-caught-lock-and-evidence
+
+- **What happened:** Green gate, 51 passing tests — and the cross-vendor FAN-OUT
+  review (Codex) still found 4 blockers: a stale-lock race that could delete a
+  live lock, review evidence trusting a typed `Reviewer-Vendor:` field, and two
+  criteria whose tests did not really exercise them.
+- **Fix / rule:** Locks are broken only when the holder process is dead, by one
+  serialized breaker that re-verifies the token; release is ownership-checked.
+  Evidence counts only comments posted by `reviewEvidence.reviewerLogins`.
+  A criterion's tagged test must exercise the criterion as written (real store,
+  real pipeline), not a convenient stand-in.
+- **Links:** issue #1, PR #2 (review round 1)

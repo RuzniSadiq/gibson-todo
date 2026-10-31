@@ -5,7 +5,6 @@
 // but still land through a PR, because main is protected.
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { must } from '../lib/exec.mjs';
 import * as git from '../lib/git.mjs';
 import * as ui from '../lib/ui.mjs';
 
@@ -54,7 +53,7 @@ export async function retro(ctx) {
     });
     run.journal('RETRO', `lessons proposed in memory-only PR #${pr.number}`);
     ui.ok(`lessons recorded in memory-only PR #${pr.number} (auto-merges once its fast checks report)`);
-    await must('gh', ['pr', 'merge', String(pr.number), '--squash', '--auto', '-R', config.repo], { timeoutSec: 60 }).catch(() => {
+    await gh.enableAutoMerge(pr.number).catch(() => {
       ui.info(`auto-merge not enabled on the repo; merge PR #${pr.number} when its checks pass`);
     });
     return pr;

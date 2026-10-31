@@ -18,6 +18,7 @@ export function loadConfig(root = REPO_ROOT) {
     releaseDir: join(stateDir, 'release'),
     snapshotDir: join(stateDir, 'worktrees', '_snapshot'),
     haltFile: join(stateDir, 'HALT'),
+    commands: { install: 'npm ci --no-audit --no-fund', build: 'npm run build', bin: 'dist/cli/main.js', ...config.commands },
   };
 }
 

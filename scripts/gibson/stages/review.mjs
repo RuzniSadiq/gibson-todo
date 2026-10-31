@@ -1,10 +1,11 @@
 // REVIEW + UX-EVAL. Never graded by the builder (Law 5). The reviewer runs in a
 // read-only sandbox, bound to the exact head SHA; its verdict is posted as
 // review evidence that CI (scripts/review-evidence.mjs) re-checks.
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dispatch, render } from '../lib/agents.mjs';
+import { render } from '../lib/agents.mjs';
 import { REVIEW_MARKER } from '../lib/evidence.mjs';
 import { run as exec } from '../lib/exec.mjs';
 import { diff as gitDiff } from '../lib/git.mjs';
@@ -37,7 +38,7 @@ async function reviewPass(ctx, issue, { template, mode, focus = '', extra = {} }
     issueNumber: issue.number, issueTitle: issue.title, tier: issue.finalTier, issueBody,
     sensors: issue.sensorReport ?? '(none)', baseRef: `origin/${config.defaultBranch}`, diff, priorFindings: '', ...extra,
   });
-  const res = await dispatch({ role: 'reviewer', ...role, access: 'read', prompt, cwd: issue.worktree, timeoutSec: config.timeoutsSec.review, runDir: run.dir });
+  const res = await ctx.dispatch({ role: 'reviewer', ...role, access: 'read', prompt, cwd: issue.worktree, timeoutSec: config.timeoutsSec.review, runDir: run.dir });
   return { ...res, verdict: res.ok ? finalVerdict(res.text) : null };
 }
 
@@ -94,8 +95,10 @@ export async function reviewRound(ctx, issue) {
     `Reviewer-Model: ${model}`,
     `Builder-Vendor: ${config.routing.builder.vendor}`,
     `Review-Mode: ${mode}`,
+    `Reviewer-Sessions: ${passes.map((p) => p.sessionId ?? 'n/a').join(',')}`,
+    `Transcript-SHA256: ${createHash('sha256').update(passes.map((p) => p.text).join('\n---\n')).digest('hex')}`,
     '',
-    `**Independence: E3** — cross-vendor (${reviewer.vendor} reviewing ${config.routing.builder.vendor}'s work), read-only sandbox, bound to exact head \`${issue.headSha.slice(0, 7)}\`.`,
+    `**Independence: E3** — cross-vendor (${reviewer.vendor} reviewing ${config.routing.builder.vendor}'s work), read-only sandbox, bound to exact head \`${issue.headSha.slice(0, 7)}\`. Transcripts kept locally under Gibson run \`${run.id}\`.`,
     '',
     '| Pass | Verdict | Time |', '|---|---|---|',
     ...passes.map((p) => `| ${p.name} | ${p.verdict === 'APPROVE' ? '✅ APPROVE' : '❌ REQUEST_CHANGES'} | ${seconds(p.durationMs)} |`),
@@ -121,7 +124,7 @@ export async function uxEval(ctx, issue) {
   const { config, run, gh } = ctx;
   const role = config.routing.uxEvaluator;
   ui.stage('UX-EVAL', `${role.vendor} (${role.model}) drives the built CLI at ${issue.headSha.slice(0, 7)} like a user would`);
-  const build = await exec('npm', ['run', 'build'], { cwd: issue.worktree, timeoutSec: 300 });
+  const build = await exec('bash', ['-c', config.commands.build], { cwd: issue.worktree, timeoutSec: 300 });
   if (build.code !== 0) throw new Park('blocked', `build of the head for UX evaluation failed:\n${build.stderr.slice(-1500)}`);
   const sandbox = mkdtempSync(join(tmpdir(), 'gibson-ux-'));
   try {
@@ -131,7 +134,7 @@ export async function uxEval(ctx, issue) {
       issueNumber: issue.number, issueTitle: issue.title, issueBody: (await gh.issue(issue.number)).body,
     });
     const stop = ui.spinner('evaluating the live CLI');
-    const res = await dispatch({ role: 'ux-evaluator', ...role, access: 'probe', prompt, cwd: issue.worktree, timeoutSec: config.timeoutsSec.uxEval, runDir: run.dir, env: { TODO_FILE: join(sandbox, 'tasks.json') } });
+    const res = await ctx.dispatch({ role: 'ux-evaluator', ...role, access: 'probe', prompt, cwd: issue.worktree, timeoutSec: config.timeoutsSec.uxEval, runDir: run.dir, env: { TODO_FILE: join(sandbox, 'tasks.json') } });
     stop();
     const grade = res.ok ? extractJson(res.text) : null;
     if (!grade || typeof grade.pass !== 'boolean') {

@@ -1,8 +1,10 @@
 // Review-evidence evaluation (Law 5 + G12), shared by CI and the pipeline.
 // Pure function: given what GitHub says about a PR, may it merge?
 //
-//  * Only comments from the repo's own people count (OWNER/MEMBER/COLLABORATOR);
-//    on a public repo anyone else can type "VERDICT: APPROVE".
+//  * Only comments POSTED BY a configured reviewer login count as review
+//    evidence (config.reviewEvidence.reviewerLogins), and only an owner login
+//    with OWNER association can approve Tier C. On a public repo anyone can
+//    type "VERDICT: APPROVE"; a collaborator can type "Reviewer-Vendor: codex".
 //  * A review counts only for the exact head SHA it names. A push invalidates it.
 //  * The reviewer vendor must differ from the builder vendor (E3, cross-vendor).
 //  * Tier C additionally needs a FAN-OUT review and an owner approval bound to
@@ -24,12 +26,13 @@ export function parseReview(comment) {
     mode: field(comment.body, 'Review-Mode'),
     verdict: finalVerdict(comment.body),
     at: comment.createdAt,
+    by: comment.author,
   };
 }
 
 /**
  * @param {{headSha: string, labels: string[], body: string, files: string[],
- *          comments: {body: string, authorAssociation: string, createdAt: string}[]}} pr
+ *          comments: {body: string, author: string, authorAssociation: string, createdAt: string}[]}} pr
  * @returns {{state: 'success'|'failure', description: string, level?: string}}
  */
 export function evaluateEvidence(pr, config) {
@@ -39,7 +42,8 @@ export function evaluateEvidence(pr, config) {
   const builder = field(pr.body ?? '', 'Builder-Vendor');
   if (!builder) return { state: 'failure', description: 'PR body has no Builder-Vendor line — cannot prove independence' };
 
-  const trusted = pr.comments.filter((c) => TRUSTED.has(c.authorAssociation));
+  const { reviewerLogins = [], ownerLogins = [] } = config.reviewEvidence ?? {};
+  const trusted = pr.comments.filter((c) => TRUSTED.has(c.authorAssociation) && reviewerLogins.includes(c.author));
   const reviews = trusted.map(parseReview).filter((r) => r && r.sha === pr.headSha).sort((a, b) => a.at.localeCompare(b.at));
   const latest = reviews.at(-1);
   if (!latest) return { state: 'failure', description: `no review of the exact head ${short} (stale reviews do not count)` };
@@ -52,9 +56,9 @@ export function evaluateEvidence(pr, config) {
   const tierC = pr.labels.includes('tier:C');
   if (tierC) {
     if (latest.mode !== 'FAN-OUT') return { state: 'failure', description: 'Tier C needs a FAN-OUT + adversarial review' };
-    const ownerOk = pr.comments.some((c) => c.authorAssociation === 'OWNER' && c.body.includes(OWNER_MARKER) && field(c.body, 'Owner-Approval') === pr.headSha);
+    const ownerOk = pr.comments.some((c) => c.authorAssociation === 'OWNER' && ownerLogins.includes(c.author) && c.body.includes(OWNER_MARKER) && field(c.body, 'Owner-Approval') === pr.headSha);
     if (!ownerOk) return { state: 'failure', description: `Tier C: awaiting owner approval of ${short} (G12)` };
-    return { state: 'success', description: `E3 ${latest.vendor} FAN-OUT approved + owner approved ${short}`, level: 'E4' };
+    return { state: 'success', description: `${latest.vendor} FAN-OUT approved (posted by ${latest.by}) + owner approved ${short}`, level: 'E4' };
   }
-  return { state: 'success', description: `E3 cross-vendor review (${latest.vendor}) approved ${short}`, level: 'E3' };
+  return { state: 'success', description: `cross-vendor review (${latest.vendor}, posted by ${latest.by}) approved ${short}`, level: 'E3' };
 }

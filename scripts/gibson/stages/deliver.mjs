@@ -4,7 +4,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dispatch, render } from '../lib/agents.mjs';
+import { render } from '../lib/agents.mjs';
 import { evaluateContract, runTapTests } from '../lib/contract.mjs';
 import { OWNER_MARKER, evaluateEvidence } from '../lib/evidence.mjs';
 import { must, run as exec } from '../lib/exec.mjs';
@@ -64,7 +64,7 @@ async function claim(ctx, issue) {
 // ── BUILD ────────────────────────────────────────────────────────────────────
 async function prepareWorktree(ctx, issue) {
   ui.info('installing dependencies and recording the green-gate baseline at the branch point…');
-  await must('npm', ['ci', '--no-audit', '--no-fund'], { cwd: issue.worktree, timeoutSec: 600 });
+  await must('bash', ['-c', ctx.config.commands.install], { cwd: issue.worktree, timeoutSec: 600 });
   await must(process.execPath, ['scripts/gate.mjs', '--baseline'], { cwd: issue.worktree, timeoutSec: ctx.config.timeoutsSec.gate });
   issue.baseline = JSON.parse(readFileSync(join(issue.worktree, '.gibson-baseline.json'), 'utf8'));
   const red = issue.baseline.steps.filter((s) => s.status === 'fail').map((s) => s.name);
@@ -86,7 +86,7 @@ async function builder(ctx, issue, extra, label) {
   });
   const before = await git.headSha(issue.worktree);
   const stop = ui.spinner(`${role.vendor} (${role.model}) ${label}`);
-  const res = await dispatch({ role: 'builder', ...role, access: 'edit', prompt, cwd: issue.worktree, timeoutSec: extra ? config.timeoutsSec.fix : config.timeoutsSec.build, runDir: run.dir });
+  const res = await ctx.dispatch({ role: 'builder', ...role, access: 'edit', prompt, cwd: issue.worktree, timeoutSec: extra ? config.timeoutsSec.fix : config.timeoutsSec.build, runDir: run.dir });
   stop();
   if (!res.ok) throw new Park('blocked', `builder failed: ${res.error}`);
   if ((await git.headSha(issue.worktree)) !== before) throw new Park('blocked', 'builder created a commit itself — forbidden (only the harness commits, after verification)');
@@ -153,7 +153,7 @@ async function assessScopeAndTier(ctx, issue) {
       why: `It was planned as Tier ${issue.tier}, but the builder had to touch: ${why}.`,
       risks: 'Continuing is safe — the stricter gates apply. Stopping leaves the PR parked; nothing merges.',
     });
-    const answer = (await ui.prompt('[c]ontinue as Tier C · [s]top ›')).toLowerCase();
+    const answer = (await ctx.prompt('[c]ontinue as Tier C · [s]top ›')).toLowerCase();
     if (!answer.startsWith('c')) throw new Park('awaiting-owner', 'owner stopped the lane at G11 (undeclared Tier C surface)', 'G11');
     issue.tierCAccepted = true;
     run.journal('GATE_HUMAN', 'Owner accepted Tier C upgrade');
@@ -289,8 +289,7 @@ async function waitForChecks(ctx, issue, { allowPendingEvidence }) {
 async function evidenceFor(ctx, issue) {
   const { gh, config } = ctx;
   const pr = await gh.pr(issue.pr);
-  const comments = JSON.parse(await must('gh', ['api', '--paginate', '--slurp', `repos/${config.repo}/issues/${issue.pr}/comments?per_page=100`], { timeoutSec: 120 })).flat()
-    .map((c) => ({ body: c.body ?? '', authorAssociation: c.author_association, createdAt: c.created_at }));
+  const comments = await gh.prComments(issue.pr);
   return { pr, verdict: evaluateEvidence({ headSha: pr.headRefOid, labels: pr.labels.map((l) => l.name), body: pr.body, files: pr.files.map((f) => f.path), comments }, config) };
 }
 
@@ -307,9 +306,9 @@ export async function ownerApprovalGate(ctx, issue) {
   });
   ui.info(`review it yourself: ${issue.prUrl}`);
   if (!ctx.interactive) return false;
-  const answer = (await ui.prompt('[y]es, approve & merge · [o]pen the PR in a browser first · [n]o, park it ›')).toLowerCase();
+  const answer = (await ctx.prompt('[y]es, approve & merge · [o]pen the PR in a browser first · [n]o, park it ›')).toLowerCase();
   if (answer.startsWith('o')) {
-    await exec('gh', ['pr', 'view', String(issue.pr), '--web', '-R', ctx.config.repo]);
+    await gh.openInBrowser(issue.pr);
     return ownerApprovalGate(ctx, issue);
   }
   if (!answer.startsWith('y')) return false;
@@ -358,12 +357,12 @@ export async function deployAndVerify(ctx, label = 'main') {
   ui.stage('DEPLOY', `building the merged ${label} into the release directory and smoke-testing it`);
   await git.fetchOrigin(config.root);
   await git.syncDetachedWorktree(config.root, config.releaseDir, base(config));
-  await must('npm', ['ci', '--no-audit', '--no-fund'], { cwd: config.releaseDir, timeoutSec: 600 });
-  await must('npm', ['run', 'build'], { cwd: config.releaseDir, timeoutSec: 300 });
+  await must('bash', ['-c', config.commands.install], { cwd: config.releaseDir, timeoutSec: 600 });
+  await must('bash', ['-c', config.commands.build], { cwd: config.releaseDir, timeoutSec: 300 });
   const sandbox = mkdtempSync(join(tmpdir(), 'gibson-smoke-'));
   try {
     const env = { TODO_FILE: join(sandbox, 'tasks.json'), NO_COLOR: '1' };
-    const bin = join(config.releaseDir, 'dist/cli/main.js');
+    const bin = join(config.releaseDir, config.commands.bin);
     const step = (args) => must(process.execPath, [bin, ...args], { env, timeoutSec: 30 });
     const version = (await step(['--version'])).trim();
     await step(['add', 'Gibson smoke test']);
