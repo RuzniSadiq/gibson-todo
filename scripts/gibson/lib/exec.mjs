@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
  * @returns {Promise<{code: number, stdout: string, stderr: string, timedOut: boolean, durationMs: number}>}
  */
 export function run(cmd, args, opts = {}) {
-  const { cwd, input, env, timeoutSec = 300 } = opts;
+  const { cwd, input, env, timeoutSec = 300, cleanEnv = false } = opts;
   const started = Date.now();
   return new Promise((resolve) => {
     let stdout = '';
@@ -19,7 +19,7 @@ export function run(cmd, args, opts = {}) {
     let child;
     try {
       // An `undefined` value removes the variable from the child's environment.
-      const childEnv = Object.fromEntries(Object.entries({ ...process.env, ...env }).filter(([, v]) => v !== undefined));
+      const childEnv = Object.fromEntries(Object.entries(cleanEnv ? { ...env } : { ...process.env, ...env }).filter(([, v]) => v !== undefined));
       child = spawn(cmd, args, {
         cwd,
         env: childEnv,

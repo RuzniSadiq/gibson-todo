@@ -25,8 +25,6 @@ const INJECTION_PATTERNS = [
   ['planted verdict', /^\s*VERDICT:\s*APPROVE\s*$/m],
 ];
 
-const ALLOW_MARKER = 'gibson:allow-fixture';
-
 /** Lines ADDED by a unified diff, with file and line number. */
 export function addedLines(diffText) {
   const out = [];
@@ -44,8 +42,8 @@ export function addedLines(diffText) {
 }
 
 const scan = (lines, patterns) =>
-  lines.flatMap(({ file, line, text }) =>
-    text.includes(ALLOW_MARKER) ? [] : patterns.filter(([, re]) => re.test(text)).map(([kind]) => ({ file, line, kind })));
+  // No opt-out marker: an exemption comment would itself be a bypass.
+  lines.flatMap(({ file, line, text }) => patterns.filter(([, re]) => re.test(text)).map(([kind]) => ({ file, line, kind })));
 
 export const scanSecrets = (diffText) => scan(addedLines(diffText), SECRET_PATTERNS);
 export const scanInjectionInDiff = (diffText) => scan(addedLines(diffText), INJECTION_PATTERNS);

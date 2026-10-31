@@ -30,9 +30,15 @@ const CODEX_SANDBOX = { read: 'read-only', probe: 'read-only', edit: 'workspace-
 // owner's keys. Residual risk (files on disk) is caught by the post-build
 // tamper check in deliver.mjs; full isolation needs an OS sandbox.
 export function scrubbedEnv(access, extra = {}) {
-  if (access === 'read') return extra;
-  return { ...extra, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_CONFIG_DIR: '/nonexistent-gibson', SSH_AUTH_SOCK: undefined, GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0' };
+  if (access === 'read') return { env: extra };
+  // Allowlist, not denylist: only what a CLI runner needs survives; every
+  // other variable (API keys, tokens, agent sockets) is dropped.
+  const keep = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'LC_ALL', 'TERM'];
+  const env = Object.fromEntries(keep.filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]]));
+  return { env: { ...env, ...extra, GH_CONFIG_DIR: '/nonexistent-gibson', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0' }, clean: true };
 }
+
+const envFor = (job) => { const { env, clean } = scrubbedEnv(job.access, job.env); return { env, cleanEnv: Boolean(clean) }; };
 
 let counter = 0;
 
@@ -63,7 +69,7 @@ async function viaClaude(job) {
     '--disallowedTools', ...CLAUDE_DENY,
   ];
   if (job.model) args.push('--model', job.model);
-  const r = await run('claude', args, { cwd: job.cwd, input: job.prompt, timeoutSec: job.timeoutSec, env: scrubbedEnv(job.access, job.env) });
+  const r = await run('claude', args, { cwd: job.cwd, input: job.prompt, timeoutSec: job.timeoutSec, ...envFor(job) });
   let parsed = null;
   try { parsed = JSON.parse(r.stdout); } catch { /* reported below */ }
   const text = parsed?.result ?? r.stdout;
@@ -81,7 +87,7 @@ async function viaCodex(job, transcript) {
   const args = ['exec', '--skip-git-repo-check', '-s', CODEX_SANDBOX[job.access], '-C', job.cwd, '-o', lastMessage];
   if (job.model) args.push('-m', job.model);
   args.push('-');
-  const r = await run('codex', args, { cwd: job.cwd, input: job.prompt, timeoutSec: job.timeoutSec, env: scrubbedEnv(job.access, job.env) });
+  const r = await run('codex', args, { cwd: job.cwd, input: job.prompt, timeoutSec: job.timeoutSec, ...envFor(job) });
   let text = '';
   try { text = readFileSync(lastMessage, 'utf8'); } catch { text = r.stdout; }
   const model = /^model:\s*(\S+)/m.exec(`${r.stderr}\n${r.stdout}`)?.[1] ?? job.model ?? '';

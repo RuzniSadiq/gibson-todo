@@ -96,9 +96,14 @@ describe('pipeline: sensors and guards', () => {
 
   it('[AC-1.8] builders cannot run arbitrary code tools or reach GitHub/SSH credentials', () => {
     assert.ok(!CLAUDE_TOOLS.edit.some((t) => ['Bash(node:*)', 'Bash(npm run:*)'].includes(t)), 'no wildcard node / npm run');
-    const env = scrubbedEnv('edit');
-    for (const k of ['GH_TOKEN', 'GITHUB_TOKEN', 'SSH_AUTH_SOCK']) assert.equal(env[k], undefined);
+    process.env.SOME_SECRET_KEY = 'x';
+    const { env, clean } = scrubbedEnv('edit');
+    assert.equal(clean, true, 'the parent environment is not inherited');
+    for (const k of ['GH_TOKEN', 'GITHUB_TOKEN', 'SSH_AUTH_SOCK', 'SOME_SECRET_KEY']) assert.equal(env[k], undefined);
     assert.equal(env.GIT_SSH_COMMAND, 'false');
-    assert.deepEqual(scrubbedEnv('read'), {}, 'read-only reviewers keep their own vendor auth untouched');
+    delete process.env.SOME_SECRET_KEY;
+    assert.deepEqual(scrubbedEnv('read'), { env: {} }, 'read-only reviewers keep their own vendor auth untouched');
+    const marker = ['gibson', 'allow-fixture'].join(':');
+    assert.equal(scanSecrets(`+++ b/x\n@@ -0,0 +1 @@\n+${['gh', 'p_', 'A'.repeat(36)].join('')} // ${marker}\n`).length, 1, 'no opt-out marker');
   });
 });
