@@ -1,5 +1,6 @@
 import { isOverdue, localCalendarDate, parseDueInput } from '../domain/due-date.ts';
 import { TodoError } from '../domain/errors.ts';
+import { DEFAULT_PRIORITY, parsePriority } from '../domain/priority.ts';
 import {
   completeTask,
   createTask,
@@ -29,13 +30,15 @@ export class TaskService {
   /**
    * `due` is user input as accepted by `parseDueInput` (YYYY-MM-DD, today,
    * tomorrow, a weekday), resolved against the clock's local calendar date.
+   * `priority` is user input as accepted by `parsePriority`; omitted means 'normal'.
    */
-  async add(title: string, due?: string): Promise<Task> {
+  async add(title: string, due?: string, priority?: string): Promise<Task> {
     const now = this.#clock.now();
-    // Resolved before the unit of work, so a bad date never reaches storage.
+    // Resolved before the unit of work, so a bad date or level never reaches storage.
     const dueDate = due === undefined ? null : parseDueInput(due, localCalendarDate(now));
+    const level = priority === undefined ? DEFAULT_PRIORITY : parsePriority(priority);
     return this.#repo.update((state) => {
-      const task: Task = { ...createTask(state.nextId, title, now), dueDate };
+      const task: Task = { ...createTask(state.nextId, title, now), dueDate, priority: level };
       return { state: { nextId: state.nextId + 1, tasks: [...state.tasks, task] }, result: task };
     });
   }
@@ -81,6 +84,15 @@ export class TaskService {
   async setDue(id: TaskId, due: string | null): Promise<Task> {
     const dueDate = due === null ? null : parseDueInput(due, this.today());
     const [task] = await this.#replaceEach([id], (t) => ({ ...t, dueDate }));
+    // #replaceEach returns exactly one task per id or throws.
+    return task as Task;
+  }
+
+  /** Sets a task's priority (`level` as accepted by `parsePriority`); nothing else changes. */
+  async setPriority(id: TaskId, level: string): Promise<Task> {
+    // Parsed before the unit of work, so a bad level never reaches storage.
+    const priority = parsePriority(level);
+    const [task] = await this.#replaceEach([id], (t) => ({ ...t, priority }));
     // #replaceEach returns exactly one task per id or throws.
     return task as Task;
   }
