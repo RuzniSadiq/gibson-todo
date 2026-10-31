@@ -20,6 +20,15 @@ export const MIGRATIONS: Readonly<Record<number, Migration>> = Object.freeze({
       ? doc['tasks'].map((t: unknown) => (isRecord(t) ? { ...t, dueDate: null } : t))
       : doc['tasks'],
   }),
+  // v2 → v3: every task gains `priority: 'normal'`. Same pass-through rule:
+  // non-object entries and a non-list `tasks` are left for the decoder.
+  2: (doc: Document): Document => ({
+    ...doc,
+    schemaVersion: 3,
+    tasks: Array.isArray(doc['tasks'])
+      ? doc['tasks'].map((t: unknown) => (isRecord(t) ? { ...t, priority: 'normal' } : t))
+      : doc['tasks'],
+  }),
 });
 
 function isRecord(v: unknown): v is Document {

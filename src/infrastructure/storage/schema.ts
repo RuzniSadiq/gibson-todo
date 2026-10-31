@@ -9,10 +9,11 @@
  */
 import type { TaskState } from '../../application/ports.ts';
 import { TodoError } from '../../domain/errors.ts';
+import { isPriority, type Priority } from '../../domain/priority.ts';
 import { isCalendarDate, type Task } from '../../domain/task.ts';
 import { migrateToCurrent } from './migrations.ts';
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export interface StoredTaskV1 {
   id: number;
@@ -39,6 +40,17 @@ export interface StoreDocumentV2 {
   tasks: StoredTaskV2[];
 }
 
+/** v3 adds a required priority: exactly 'high', 'normal' or 'low'. */
+export interface StoredTaskV3 extends StoredTaskV2 {
+  priority: Priority;
+}
+
+export interface StoreDocumentV3 {
+  schemaVersion: 3;
+  nextId: number;
+  tasks: StoredTaskV3[];
+}
+
 /** Validates an already-JSON-parsed document and converts it to domain state. */
 export function decodeStore(raw: unknown): TaskState {
   if (!isRecord(raw) || typeof raw['schemaVersion'] !== 'number') {
@@ -59,7 +71,7 @@ export function decodeStore(raw: unknown): TaskState {
   return toState(doc);
 }
 
-export function encodeStore(state: TaskState): StoreDocumentV2 {
+export function encodeStore(state: TaskState): StoreDocumentV3 {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     nextId: state.nextId,
@@ -70,6 +82,7 @@ export function encodeStore(state: TaskState): StoreDocumentV2 {
       createdAt: t.createdAt,
       completedAt: t.completedAt,
       dueDate: t.dueDate,
+      priority: t.priority,
     })),
   };
 }
@@ -93,7 +106,7 @@ function toState(doc: Record<string, unknown>): TaskState {
 function decodeTask(entry: unknown, index: number): Task {
   const where = `task at position ${index + 1}`;
   if (!isRecord(entry)) throw corrupt(`${where} is not an object`);
-  const { id, title, done, createdAt, completedAt, dueDate } = entry;
+  const { id, title, done, createdAt, completedAt, dueDate, priority } = entry;
   if (!isPositiveInt(id)) throw corrupt(`${where} has an invalid id`);
   if (typeof title !== 'string' || title.length === 0) throw corrupt(`${where} has no title`);
   if (typeof done !== 'boolean') throw corrupt(`${where} has an invalid done flag`);
@@ -108,7 +121,12 @@ function decodeTask(entry: unknown, index: number): Task {
   if (dueDate !== null && !isCalendarDate(dueDate)) {
     throw corrupt(`${where} has an invalid dueDate (expected YYYY-MM-DD or null)`);
   }
-  return { id, title, done, createdAt, completedAt, dueDate };
+  // Required in v3 (the migration fills it for v1/v2): a missing, mis-cased or
+  // unknown level is damage, never silently defaulted.
+  if (!isPriority(priority)) {
+    throw corrupt(`${where} has an invalid priority (expected high, normal or low)`);
+  }
+  return { id, title, done, createdAt, completedAt, dueDate, priority };
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>

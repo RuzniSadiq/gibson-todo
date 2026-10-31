@@ -1,4 +1,5 @@
 import { TodoError } from './errors.ts';
+import { DEFAULT_PRIORITY, type Priority } from './priority.ts';
 
 export type TaskId = number;
 
@@ -13,6 +14,8 @@ export interface Task {
   readonly completedAt: string | null;
   /** Calendar date (YYYY-MM-DD, no time zone) the task is due, or null. */
   readonly dueDate: string | null;
+  /** How urgent the task is; new tasks start as 'normal'. */
+  readonly priority: Priority;
 }
 
 export const TITLE_MAX_LENGTH = 200;
@@ -76,6 +79,7 @@ export function createTask(id: TaskId, rawTitle: string, now: Date): Task {
     createdAt: now.toISOString(),
     completedAt: null,
     dueDate: null,
+    priority: DEFAULT_PRIORITY,
   };
 }
 
