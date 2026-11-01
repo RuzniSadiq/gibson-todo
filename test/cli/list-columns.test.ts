@@ -192,6 +192,8 @@ describe('todo list renders aligned columns, title last (#28)', () => {
   it('[AC-28.5] an invalid --priority and combined status flags fail exactly as before', async () => {
     await ok('add', 'Call');
     const bad = await todo('list', '--priority', 'urgent');
+    // "Still ... with the same error": the pre-change exit for an invalid level is 1 (VALIDATION),
+    // pinned by [AC-23.3] in list-priority.test.ts. Exit 2 (USAGE) applies to combined status flags below.
     assert.equal(bad.code, EXIT.user, 'an invalid priority value is a validation error (exit 1), unchanged');
     assert.equal(bad.out, '');
     assert.match(bad.err, /^error: "urgent" .*\nhint: .*high.*normal.*low/);
