@@ -168,3 +168,15 @@ _Last updated: 2026-11-01_
 - **What happened:** Local gate was green on #5 but required CI failed 1 time(s).
 - **Fix / rule:** Local gate and CI must run the same commands (.agents/gate.json). Find the divergence and close it.
 - **Links:** PR #8 · run `20261031-193635-let-me-give-a-task-a-due-date`
+
+## 2026-11-01 — review-caught-28
+
+- **What happened:** Green gate passed on #28 ("Render `todo list` rows as aligned columns, title last") but the cross-vendor reviewer requested changes (2 round(s)). First finding: - [test/cli/list-columns.test.ts](/Users/gapstars/.gibson/gibson-todo/worktrees/issue-28/test/cli/list-columns.test.ts:195) — kind: blocker; class: test-gap; trigger: `todo list --priority urgent` ⇒ the tagged test expects exit 1, so it doe
+- **Fix / rule:** If this finding class recurs, add a test or lint rule so the gate catches it before review (prefer a sensor over prose).
+- **Links:** PR #31 · run `20261101-092245-make-todo-list-easy-to-scan-sh`
+
+## 2026-11-01 — ci-diverged-28
+
+- **What happened:** Local gate was green on #28 but required CI failed 1 time(s).
+- **Fix / rule:** Local gate and CI must run the same commands (.agents/gate.json). Find the divergence and close it.
+- **Links:** PR #31 · run `20261101-092245-make-todo-list-easy-to-scan-sh`
