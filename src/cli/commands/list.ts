@@ -1,7 +1,8 @@
 import { TodoError } from '../../domain/errors.ts';
 import { parsePriority, type Priority } from '../../domain/priority.ts';
 import type { StatusFilter } from '../../application/task-service.ts';
-import { formatTask, plural, type Command, type ParsedArgs } from '../command.ts';
+import { renderTaskRows } from '../columns.ts';
+import { plural, type Command, type ParsedArgs } from '../command.ts';
 
 export const listCommand: Command = {
   name: 'list',
@@ -29,7 +30,7 @@ export const listCommand: Command = {
     const today = service.today();
     out.result(tasks, (style) => {
       if (tasks.length === 0) return [priority === undefined ? emptyMessage(status) : emptyPriorityMessage(status, priority)];
-      const lines = tasks.map((t) => formatTask(t, style, today, { priority: true }));
+      const lines = renderTaskRows(tasks, style, today);
       if (status === 'overdue') return [...lines, '', style.dim(`${plural(tasks.length, 'overdue task')}`)];
       const done = tasks.filter((t) => t.done).length;
       return [...lines, '', style.dim(`${plural(tasks.length - done, 'open task')} · ${done} done`)];
