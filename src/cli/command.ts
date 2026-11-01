@@ -62,28 +62,46 @@ export function formatTask(task: Task, style: Style, today: string, options: For
   return [`${id}  ${box}  ${title}`, ...labels.filter((l) => l !== '')].join('  ');
 }
 
+/** A cell's plain text plus how to colour it; column widths are measured on `text`. */
+export interface Cell {
+  readonly text: string;
+  readonly paint: (s: string) => string;
+}
+
+const paintCell = (cell: Cell): string => (cell.text === '' ? '' : cell.paint(cell.text));
+
 /** A yellow `high` or a dim `low`; empty for normal, so everyday lists stay quiet. */
 export function priorityLabel(task: Task, style: Style): string {
+  return paintCell(priorityCell(task, style));
+}
+
+/** The priority as a cell: `high` (yellow), `low` (dim), or empty text for normal. */
+export function priorityCell(task: Task, style: Style): Cell {
   switch (task.priority) {
     case 'high':
-      return style.yellow('high');
+      return { text: 'high', paint: style.yellow };
     case 'low':
-      return style.dim('low');
+      return { text: 'low', paint: style.dim };
     case 'normal':
-      return '';
+      return { text: '', paint: style.dim };
   }
 }
 
 /** `due Sat 14 Nov`, `due today` or a red `overdue 2d`; empty without a due date. */
 export function dueLabel(task: Task, style: Style, today: string): string {
-  if (task.dueDate === null) return '';
+  return paintCell(dueCell(task, style, today));
+}
+
+/** The due label (see `dueLabel`) as a cell; empty text without a due date. */
+export function dueCell(task: Task, style: Style, today: string): Cell {
+  if (task.dueDate === null) return { text: '', paint: style.dim };
   // A completed task is never overdue or "due today": it just shows its date.
   if (!task.done) {
     const relation = dueRelation(task.dueDate, today);
-    if (relation.kind === 'overdue') return style.red(`overdue ${relation.days}d`);
-    if (relation.kind === 'today') return style.dim('due today');
+    if (relation.kind === 'overdue') return { text: `overdue ${relation.days}d`, paint: style.red };
+    if (relation.kind === 'today') return { text: 'due today', paint: style.dim };
   }
-  return style.dim(`due ${formatDueDateFrom(task.dueDate, today)}`);
+  return { text: `due ${formatDueDateFrom(task.dueDate, today)}`, paint: style.dim };
 }
 
 export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;

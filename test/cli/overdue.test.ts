@@ -60,8 +60,9 @@ describe('due labels in the list (TZ=Europe/London)', () => {
     await ok('add', 'Pay invoice', '--due', '2026-11-14');
     await ok('add', 'Renew passport', '--due', '2027-01-14');
     const out = await ok('list');
-    assert.match(lineFor(out, 1), /^ {2}#1 {2}\[ \] {2}Pay invoice {2}due Sat 14 Nov$/);
-    assert.match(lineFor(out, 2), /^ {2}#2 {2}\[ \] {2}Renew passport {2}due Thu 14 Jan 2027$/);
+    // Columns (#28): the due cell is padded to the widest value, the title comes last.
+    assert.match(lineFor(out, 1), /^ {2}#1 {2}\[ \] {2}due Sat 14 Nov {7}Pay invoice$/);
+    assert.match(lineFor(out, 2), /^ {2}#2 {2}\[ \] {2}due Thu 14 Jan 2027 {2}Renew passport$/);
   });
 
   it('[AC-7.1] with the clock at 2026-11-16, a task due 14 Nov is `overdue 2d` and one due 16 Nov is `due today`', async () => {
@@ -70,8 +71,8 @@ describe('due labels in the list (TZ=Europe/London)', () => {
     await ok('add', 'Call the bank', '--due', '2026-11-16');
     at('2026-11-16T12:00:00Z');
     const out = await ok('list');
-    assert.match(lineFor(out, 1), /Pay invoice {2}overdue 2d$/);
-    assert.match(lineFor(out, 2), /Call the bank {2}due today$/);
+    assert.match(lineFor(out, 1), /\] {2}overdue 2d {2}Pay invoice$/);
+    assert.match(lineFor(out, 2), /\] {2}due today {3}Call the bank$/);
   });
 
   it('[AC-7.2] a completed task with a past due date is never overdue; no due date means no label', async () => {
@@ -83,8 +84,9 @@ describe('due labels in the list (TZ=Europe/London)', () => {
     assert.doesNotMatch(done, /overdue/);
     const out = await ok('list', '--all');
     assert.doesNotMatch(out, /overdue/);
-    assert.match(lineFor(out, 1), /\[x\] {2}Pay invoice {2}due Sat 14 Nov$/);
-    assert.match(lineFor(out, 2), /\[ \] {2}No rush$/);
+    assert.match(lineFor(out, 1), /\[x\] {2}due Sat 14 Nov {2}Pay invoice$/);
+    // No due date: a blank due cell padded to the column width, never a label.
+    assert.match(lineFor(out, 2), /\[ \] {18}No rush$/);
   });
 
   it('[AC-7.2] colour off (non-TTY, or NO_COLOR on a TTY) prints no escape codes; colour on wraps overdue in red', async () => {
@@ -118,15 +120,15 @@ describe('overdue counts follow the local calendar (TZ=Pacific/Auckland)', () =>
 
     // NZDT is UTC+13: local midnight starting 16 Nov is 2026-11-15T11:00Z. Both instants are 15 Nov in UTC.
     at('2026-11-15T10:59:00Z'); // 23:59 on Sun 15 Nov in Auckland
-    assert.match(await ok('list'), /Pay invoice {2}overdue 1d$/m);
+    assert.match(await ok('list'), /\] {2}overdue 1d {2}Pay invoice$/m);
     at('2026-11-15T11:01:00Z'); // 00:01 on Mon 16 Nov in Auckland
-    assert.match(await ok('list'), /Pay invoice {2}overdue 2d$/m);
+    assert.match(await ok('list'), /\] {2}overdue 2d {2}Pay invoice$/m);
 
     // And the same edge for `due today` → overdue: midnight starting 15 Nov is 2026-11-14T11:00Z.
     at('2026-11-14T10:59:00Z');
-    assert.match(await ok('list'), /Pay invoice {2}due today$/m);
+    assert.match(await ok('list'), /\] {2}due today {2}Pay invoice$/m);
     at('2026-11-14T11:01:00Z');
-    assert.match(await ok('list'), /Pay invoice {2}overdue 1d$/m);
+    assert.match(await ok('list'), /\] {2}overdue 1d {2}Pay invoice$/m);
     assert.equal((JSON.parse(await ok('list', '--overdue', '--json')) as unknown[]).length, 1);
   });
 });
@@ -153,8 +155,8 @@ describe('todo list --overdue (TZ=Europe/London)', () => {
       const out = await ok('list', flag);
       const ids = [...out.matchAll(/#(\d+) /g)].map((m) => Number(m[1]));
       assert.deepEqual(ids, [1, 6], flag);
-      assert.match(lineFor(out, 1), /Overdue A {2}overdue 6d$/);
-      assert.match(lineFor(out, 6), /Overdue B {2}overdue 1d$/);
+      assert.match(lineFor(out, 1), /\] {2}overdue 6d {2}Overdue A$/);
+      assert.match(lineFor(out, 6), /\] {2}overdue 1d {2}Overdue B$/);
     }
     const ls = await ok('ls', '-o');
     assert.deepEqual([...ls.matchAll(/#(\d+) /g)].map((m) => Number(m[1])), [1, 6]);

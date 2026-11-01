@@ -132,8 +132,9 @@ describe('list ordering, --priority filter and labels (real JSON store)', () => 
     await json('due', '3', '2026-11-14');
     const { code, out } = await todo(['list']);
     assert.equal(code, EXIT.ok);
-    assert.match(lineFor(out, 3), /Pay invoice {2}high {2}due /);
-    assert.match(lineFor(out, 1), /Water plants {2}low$/);
+    // Columns (#28): priority then due, both padded, title last.
+    assert.match(lineFor(out, 3), /\] {2}high {2}due Sat 14 Nov {2}Pay invoice$/);
+    assert.match(lineFor(out, 1), /\] {2}low {19}Water plants$/);
     for (const id of [2, 4]) {
       const line = lineFor(out, id);
       assert.ok(line !== '' && !/\b(high|normal|low)\b/.test(line), `normal line should have no label: ${line}`);
