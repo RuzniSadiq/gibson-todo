@@ -121,3 +121,77 @@ describe('TaskService priority', () => {
     assert.deepEqual((await s.list({ status: 'all' })).map((t) => t.priority), ['normal', 'low']);
   });
 });
+
+describe('TaskService title filter', () => {
+  const titles = async (s: TaskService, title: string) =>
+    (await s.list({ status: 'all', title })).map((t) => t.title);
+
+  it('[AC-36.1] title filter keeps only titles containing the text, ignoring case', async () => {
+    const s = service();
+    await s.add('Call the Bank');
+    await s.add('Pay invoice');
+    await s.add('bank transfer');
+    assert.deepEqual(await titles(s, 'bank'), ['Call the Bank', 'bank transfer']);
+    assert.deepEqual(await titles(s, 'BANK'), ['Call the Bank', 'bank transfer']);
+    assert.deepEqual(await titles(s, '  bank  '), ['Call the Bank', 'bank transfer']);
+    assert.deepEqual(await titles(s, 'nothing like it'), []);
+  });
+
+  it('[AC-36.2] title filter combines with status and priority filters and keeps priority-then-id order', async () => {
+    const s = service();
+    await s.add('bank low', undefined, 'low'); // 1
+    await s.add('bank normal'); // 2
+    await s.add('other high', undefined, 'high'); // 3
+    await s.add('Bank high', undefined, 'high'); // 4
+    await s.add('bank done high', undefined, 'high'); // 5
+    await s.add('bank normal two'); // 6
+    await s.complete([5]);
+    const ids = async (query: Parameters<TaskService['list']>[0]) => (await s.list(query)).map((t) => t.id);
+    assert.deepEqual(await ids({ status: 'open', title: 'bank' }), [4, 2, 6, 1]);
+    assert.deepEqual(await ids({ status: 'done', title: 'bank' }), [5]);
+    assert.deepEqual(await ids({ status: 'all', title: 'bank' }), [4, 5, 2, 6, 1]);
+    assert.deepEqual(await ids({ status: 'all', title: 'bank', priority: 'high' }), [4, 5]);
+    assert.deepEqual(await ids({ status: 'open', title: 'bank', priority: 'normal' }), [2, 6]);
+    assert.deepEqual(await ids({ status: 'open', title: 'other', priority: 'low' }), []);
+  });
+
+  it('[AC-36.3] search text is matched literally, never as a pattern', async () => {
+    const s = service();
+    await s.add('Learn c++');
+    await s.add('Save 50%');
+    await s.add('v1.2 release');
+    await s.add('plain words');
+    await s.add('learn cc');
+    assert.deepEqual(await titles(s, 'c++'), ['Learn c++']);
+    assert.deepEqual(await titles(s, '50%'), ['Save 50%']);
+    assert.deepEqual(await titles(s, '.'), ['v1.2 release']);
+    assert.deepEqual(await titles(s, '.*'), []);
+    assert.deepEqual(await titles(s, '[a-z]'), []);
+  });
+
+  it('[AC-36.4] matching ignores case for non-ASCII letters', async () => {
+    const s = service();
+    await s.add('Ärzte anrufen');
+    await s.add('Arzt');
+    assert.deepEqual(await titles(s, 'ärzte'), ['Ärzte anrufen']);
+    assert.deepEqual(await titles(s, 'ÄRZTE'), ['Ärzte anrufen']);
+  });
+
+  it('[AC-36.5] without a title (or with a blank one) the listing is unchanged', async () => {
+    const s = service();
+    await s.add('one', undefined, 'low');
+    await s.add('two');
+    await s.add('three', '2026-10-01', 'high');
+    await s.add('four');
+    await s.complete([2]);
+    for (const status of ['open', 'done', 'all', 'overdue'] as const) {
+      const baseline = await s.list({ status });
+      assert.ok(status === 'done' || baseline.length > 0);
+      for (const title of [undefined, '', '   ']) {
+        const query = title === undefined ? { status } : { status, title };
+        assert.deepEqual(await s.list(query), baseline);
+      }
+    }
+    assert.deepEqual((await s.list({ status: 'open' })).map((t) => t.id), [3, 4, 1]);
+  });
+});

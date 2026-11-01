@@ -17,6 +17,18 @@ export interface ListQuery {
   readonly status: StatusFilter;
   /** When set, only tasks at this level (applied together with `status`). */
   readonly priority?: Priority;
+  /**
+   * When set, only tasks whose title contains this text, ignoring case
+   * (a literal substring, never a pattern). Trimmed first; blank means no filter.
+   */
+  readonly title?: string;
+}
+
+/** Literal, case-insensitive substring match; a blank needle matches everything. */
+function titleMatcher(title: string | undefined): (task: Task) => boolean {
+  const needle = title?.trim().toLowerCase() ?? '';
+  if (needle === '') return () => true;
+  return (task) => task.title.toLowerCase().includes(needle);
 }
 
 /** The use cases. The CLI talks to this; it never touches storage directly. */
@@ -51,14 +63,17 @@ export class TaskService {
   }
 
   /**
-   * Tasks matching `status` (and `priority`, when given), most urgent first:
+   * Tasks matching `status` (and `priority` / `title`, when given), most urgent first:
    * high, then normal, then low; task-number order within each level.
    * `overdue`: open tasks due before the clock's local date.
    */
   async list(query: ListQuery): Promise<readonly Task[]> {
     const { tasks } = await this.#repo.read();
     const { priority } = query;
-    const matching = this.#byStatus(tasks, query.status).filter((t) => priority === undefined || t.priority === priority);
+    const titleMatches = titleMatcher(query.title);
+    const matching = this.#byStatus(tasks, query.status).filter(
+      (t) => (priority === undefined || t.priority === priority) && titleMatches(t),
+    );
     return [...matching].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.id - b.id);
   }
 
